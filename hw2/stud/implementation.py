@@ -78,6 +78,7 @@ class RandomBaseline(Model):
         ("price", 268),
         ("food", 1008),
         ("ambience", 355),
+        ("service", 248),
     ]
 
     def __init__(self, mode = 'b'):
