@@ -151,7 +151,7 @@ def evaluate_extraction(samples, predictions_b):
 def evaluate_sentiment(samples, predictions_b, mode="Aspect Sentiment"):
     scores = {}
     if mode == 'Category Extraction':
-        sentiment_types = ["anecdotes/miscellaneous", "price", "food", "ambience"]
+        sentiment_types = ["anecdotes/miscellaneous", "price", "food", "ambience", "service"]
     else:
         sentiment_types = ["positive", "negative", "neutral", "conflict"]
     scores = {sent: {"tp": 0, "fp": 0, "fn": 0} for sent in sentiment_types + ["ALL"]}
