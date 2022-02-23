@@ -1,11 +1,81 @@
 from typing import *
 
+import pytorch_lightning as pl
 import torch
-from torch.utils.data import Dataset
-from torchtext.vocab import Vocab
+from torch.nn.utils.rnn import pad_sequence
+from torch.utils.data import Dataset, DataLoader
+from torchtext.vocab import vocab, Vocab
 from transformers import PreTrainedTokenizer
 
 from evaluate import read_dataset
+from stud.constants import PAD_INDEX, UNK_TOKEN, PAD_TOKEN, UNK_INDEX
+
+
+def build_vocab(dataset: "ABSADataset", min_freq: int = 1) -> Vocab:
+    counter = Counter()
+
+    for sample in dataset:
+        for token in sample["tokens"]:
+            counter[token] += 1
+
+    # min_freq is the minimum number of times that a token must appear in order to be part of the vocabulary
+    vocabulary = vocab(counter, min_freq=min_freq)
+
+    # add special tokens to handle padding and unknown words at testing time
+    vocabulary.insert_token(UNK_TOKEN, UNK_INDEX)
+    vocabulary.set_default_index(UNK_INDEX)
+
+    vocabulary.insert_token(PAD_TOKEN, PAD_INDEX)
+
+    return vocabulary
+
+
+def build_label_vocab(dataset: "ABSADataset") -> Tuple[Vocab, Vocab, Vocab]:
+    tag_counter = Counter()
+    bio_counter = Counter()
+    sentiment_counter = Counter()
+
+    for sample in dataset:
+        for i in range(len(sample["tokens"])):
+            token = sample["tokens"][i]
+            tag = sample["tags"][i]
+            if token != PAD_TOKEN:
+                tag_counter[tag] += 1
+                bio_counter[tag[0]] += 1
+                sentiment_counter[tag[2:]] += 1
+
+    tag_vocabulary = vocab(tag_counter)
+    bio_vocabulary = vocab(bio_counter)
+    sentiment_vocabulary = vocab(sentiment_counter)
+
+    tag_vocabulary.insert_token(PAD_TOKEN, PAD_INDEX)
+    bio_vocabulary.insert_token(PAD_TOKEN, PAD_INDEX)
+    sentiment_vocabulary.insert_token(PAD_TOKEN, PAD_INDEX)
+
+    return tag_vocabulary, bio_vocabulary, sentiment_vocabulary
+
+
+def padding_collate_fn(batch):
+    token_idxs = [sample["token_idxs"] for sample in batch]
+    bio_idxs = [sample["bio_idxs"] for sample in batch]
+    sentiment_idxs = [sample["sentiment_idxs"] for sample in batch]
+    tag_idxs = [sample["tag_idxs"] for sample in batch]
+
+    padded_token_idxs = pad_sequence(token_idxs, batch_first=True, padding_value=PAD_INDEX)
+    padded_bio_idxs = pad_sequence(bio_idxs, batch_first=True, padding_value=PAD_INDEX)
+    padded_sentiment_idxs = pad_sequence(sentiment_idxs, batch_first=True, padding_value=PAD_INDEX)
+    padded_tag_idxs = pad_sequence(tag_idxs, batch_first=True, padding_value=PAD_INDEX)
+
+    return {
+        "targets": [sample["targets"] for sample in batch],
+        "text": [sample["text"] for sample in batch],
+        "tokens": [sample["tokens"] for sample in batch],
+        "tags": [sample["tags"] for sample in batch],
+        "token_idxs": torch.tensor(padded_token_idxs),
+        "bio_idxs": torch.tensor(padded_bio_idxs),
+        "sentiment_idxs": torch.tensor(padded_sentiment_idxs),
+        "tag_idxs": torch.tensor(padded_tag_idxs)
+    }
 
 
 class ABSADataset(Dataset):
@@ -136,3 +206,48 @@ class ABSADataset(Dataset):
             "sentiment_idxs": sentiment_idxs[idx] if len(sentiment_idxs) != 0 else None,
             "tag_idxs": tag_idxs[idx] if len(tag_idxs) != 0 else None
         }
+
+
+class ABSADataModule(pl.LightningDataModule):
+
+    def __init__(self,
+                 train_samples: List[Dict],
+                 val_samples: List[Dict],
+                 tokenizer: PreTrainedTokenizer,
+                 vocabularies: Dict[str, Vocab] = None,
+                 batch_size: int = 32) -> None:
+        super().__init__()
+        self.val_set = None
+        self.train_set = None
+        self.train_samples = train_samples
+        self.val_samples = val_samples
+        self.tokenizer = tokenizer
+        self.vocabs = vocabularies
+        self.batch_size = batch_size
+
+    def setup(self, stage: Optional[str] = None) -> None:
+        self.train_set = ABSADataset(self.train_samples,
+                                     tokenizer=self.tokenizer,
+                                     vocabularies=self.vocabs)
+
+        self.val_set = ABSADataset(self.val_samples,
+                                   tokenizer=self.tokenizer,
+                                   vocabularies=self.vocabs)
+
+        if self.vocabs is None:
+            self.vocabs = dict()
+            self.vocabs["text"] = build_vocab(self.train_set + self.val_set)
+            self.vocabs["tag"], self.vocabs["bio"], self.vocabs["sentiment"] = build_label_vocab(self.train_set)
+
+        self.train_set.encode_samples(self.vocabs)
+        self.val_set.encode_samples(self.vocabs)
+
+    def train_dataloader(self) -> DataLoader:
+        return DataLoader(self.train_set,
+                          batch_size=self.batch_size,
+                          collate_fn=padding_collate_fn)
+
+    def val_dataloader(self) -> DataLoader:
+        return DataLoader(self.val_set,
+                          batch_size=self.batch_size,
+                          collate_fn=padding_collate_fn)
