@@ -4,6 +4,7 @@ from typing import List, Tuple, Dict
 from model import Model
 import random
 
+
 def build_model_b(device: str) -> Model:
     """
     The implementation of this function is MANDATORY.
@@ -14,6 +15,7 @@ def build_model_b(device: str) -> Model:
             b: Aspect sentiment analysis.
     """
     return RandomBaseline()
+
 
 def build_model_ab(device: str) -> Model:
     """
@@ -26,8 +28,8 @@ def build_model_ab(device: str) -> Model:
             b: Aspect sentiment analysis.
 
     """
-    # return RandomBaseline(mode='ab')
-    raise NotImplementedError
+    return RandomBaseline(mode='ab')
+
 
 def build_model_cd(device: str) -> Model:
     """
@@ -40,16 +42,15 @@ def build_model_cd(device: str) -> Model:
             c: Category identification.
             d: Category sentiment analysis.
     """
-    # return RandomBaseline(mode='cd')
-    raise NotImplementedError
+    return RandomBaseline(mode='cd')
+
 
 class RandomBaseline(Model):
-
     options_sent = [
-        ('positive', 793+1794),
-        ('negative', 701+638),
-        ('neutral',  365+507),
-        ('conflict', 39+72),
+        ('positive', 793 + 1794),
+        ('negative', 701 + 638),
+        ('neutral', 365 + 507),
+        ('conflict', 39 + 72),
     ]
 
     options = [
@@ -69,7 +70,7 @@ class RandomBaseline(Model):
     options_sent_cat = [
         ('positive', 1801),
         ('negative', 672),
-        ('neutral',  411),
+        ('neutral', 411),
         ('conflict', 164),
     ]
 
@@ -81,7 +82,7 @@ class RandomBaseline(Model):
         ("service", 248),
     ]
 
-    def __init__(self, mode = 'b'):
+    def __init__(self, mode='b'):
 
         self._options_sent = [option[0] for option in self.options_sent]
         self._weights_sent = np.array([option[1] for option in self.options_sent])
@@ -121,22 +122,23 @@ class RandomBaseline(Model):
                 if len(sample["targets"]) > 0:
                     words = [word[1] for word in sample["targets"]]
             if words:
-                pred_sample["targets"] = [(word, str(np.random.choice(self._options_sent, 1, p=self._weights_sent)[0])) for word in words]
-            else: 
+                pred_sample["targets"] = [(word, str(np.random.choice(self._options_sent, 1, p=self._weights_sent)[0]))
+                                          for word in words]
+            else:
                 pred_sample["targets"] = []
             if self.mode == 'cd':
                 n_preds = np.random.choice(self._options_cat_n, 1, p=self._weights_cat_n)[0]
                 pred_sample["categories"] = []
                 for i in range(n_preds):
-                    category = str(np.random.choice(self._options_cat, 1, p=self._weights_cat)[0]) 
-                    sentiment = str(np.random.choice(self._options_sent_cat, 1, p=self._weights_sent_cat)[0]) 
+                    category = str(np.random.choice(self._options_cat, 1, p=self._weights_cat)[0])
+                    sentiment = str(np.random.choice(self._options_sent_cat, 1, p=self._weights_sent_cat)[0])
                     pred_sample["categories"].append((category, sentiment))
             preds.append(pred_sample)
         return preds
 
 
 class StudentModel(Model):
-    
+
     # STUDENT: construct here your model
     # this class should be loading your weights and vocabulary
 
