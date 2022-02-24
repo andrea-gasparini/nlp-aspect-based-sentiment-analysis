@@ -1,22 +1,22 @@
 from pprint import pprint
 from typing import *
 
+import pytorch_lightning as pl
 import torch
 from torch.nn.utils.rnn import pad_sequence
-from transformers import BertModel, PreTrainedTokenizer
+from transformers import BertModel, AutoTokenizer
 
 from stud.constants import PAD_INDEX
 
 
-class BertEmbedding(torch.nn.Module):
+class BertEmbedding(pl.LightningModule):
 
     def __init__(self, pretrained_model_name_or_path: str = "bert-base-cased") -> None:
         super().__init__()
 
-        self.tokenizer = PreTrainedTokenizer.from_pretrained(pretrained_model_name_or_path)
-        self.model = BertModel.from_pretrained(pretrained_model_name_or_path,
-                                               output_hidden_states=True,
-                                               return_dict=True)
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path)
+        self.model = BertModel.from_pretrained(pretrained_model_name_or_path, return_dict=True)
+        self.model.to(self.device)
         self.model.eval()
 
     def forward(self, batch: Dict[str, Union[torch.Tensor, List]]) -> torch.Tensor:
@@ -27,9 +27,9 @@ class BertEmbedding(torch.nn.Module):
                                   truncation=False,
                                   is_split_into_words=False)
 
-        bert_out = self.model(encoding["input_ids"])["last_hidden_state"]
-
         word_ids = [sample.word_ids for sample in encoding.encodings]
+
+        bert_out = self.model(encoding["input_ids"].to(self.device), output_hidden_states=True)["last_hidden_state"]
 
         aggregated_bert_out = [self.aggregate_wordpiece_vectors(word_ids, bert_out) for word_ids, bert_out in
                                zip(word_ids, bert_out)]
