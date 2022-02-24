@@ -145,7 +145,8 @@ class AspectTermsClassifier(torch.nn.Module):
         token_idxs = batch["token_idxs"]
 
         if self.hparams.bert_embedding:
-            embeddings = self.word_embedding(batch)
+            with torch.no_grad():
+                embeddings = self.word_embedding(batch)
         else:
             embeddings = self.word_embedding(token_idxs)
 
