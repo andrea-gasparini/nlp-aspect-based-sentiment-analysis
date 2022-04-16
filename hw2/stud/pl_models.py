@@ -6,7 +6,7 @@ from stud.models import AspectTermsClassifier
 
 
 class PlAspectTermsClassifier(pl.LightningModule):
-    def __init__(self, hparams, embeddings=None, ignore_index: int = PAD_INDEX):
+    def __init__(self, hparams, embeddings=None, ignore_index: int = PAD_INDEX, *args, **kwargs):
         super().__init__()
 
         self.save_hyperparameters(hparams)
@@ -46,7 +46,11 @@ class PlAspectTermsClassifier(pl.LightningModule):
         out = self.step(batch, batch_idx)
         loss = out["loss"]
 
-        self.log("train_loss", loss, prog_bar=True)
+        self.log("train_loss",
+                 loss,
+                 prog_bar=True,
+                 on_step=False,
+                 on_epoch=True)
 
         return loss
 
@@ -54,13 +58,21 @@ class PlAspectTermsClassifier(pl.LightningModule):
         out = self.step(batch, batch_idx)
         loss = out["loss"]
 
-        self.log("valid_loss", loss, prog_bar=True)
+        self.log("valid_loss",
+                 loss,
+                 prog_bar=True,
+                 on_step=False,
+                 on_epoch=True)
 
     def test_step(self, batch, batch_idx):
         out = self.step(batch, batch_idx)
         loss = out["loss"]
 
-        self.log("test_loss", loss, prog_bar=True)
+        self.log("test_loss",
+                 loss,
+                 prog_bar=True,
+                 on_step=False,
+                 on_epoch=True)
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters())
