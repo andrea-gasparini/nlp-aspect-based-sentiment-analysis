@@ -27,7 +27,7 @@ def load_pretrained_embeddings(filename: str, cache_dir: str, vocab: Vocab) -> t
     embeddings[vocab["[PAD]"]] = torch.zeros(pretrained_embeddings.dim)
 
     print(f"initialised {initialised} embeddings")
-    print(f"randomly initialised {len(vocabulary) - initialised} embeddings")
+    print(f"randomly initialised {len(vocab) - initialised} embeddings")
 
     return embeddings
 
