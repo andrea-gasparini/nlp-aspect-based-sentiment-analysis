@@ -1,7 +1,5 @@
 import os
 
-from transformers import AutoTokenizer
-
 from torchtext.vocab import Vectors
 
 def load_pretrained_embeddings(filename: str, cache_dir: str, vocab: Vocab) -> torch.Tensor:
@@ -33,13 +31,11 @@ def load_pretrained_embeddings(filename: str, cache_dir: str, vocab: Vocab) -> t
     return embeddings
 
 
-def get_tokenizer(pretrained_model_name_or_path: str) -> AutoTokenizer:
+def get_pretrained_model(pretrained_model_name_or_path: str) -> str:
 	"""
-	Returns an HuggingFace AutoTokenizer, locally loaded if the weights are
-	available or downloaded otherwise.
+	Returns the HuggingFace model name or the path to its local directory in case
+	the given arg is a valid one.
 	"""
-	if os.path.exists(pretrained_model_name_or_path):
-		return AutoTokenizer.from_pretrained(pretrained_model_name_or_path)
-	else:
-		name = os.path.basename(os.path.normpath(pretrained_model_name_or_path))
-		return AutoTokenizer.from_pretrained(name)
+	return (pretrained_model_name_or_path
+			if os.path.exists(pretrained_model_name_or_path)
+			else os.path.basename(os.path.normpath(pretrained_model_name_or_path)))
