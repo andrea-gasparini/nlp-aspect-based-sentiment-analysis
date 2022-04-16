@@ -21,11 +21,11 @@ class BertEmbedding(pl.LightningModule):
 
     def forward(self, batch: Dict[str, Union[torch.Tensor, List]]) -> torch.Tensor:
 
-        encoding = self.tokenizer(batch["text"],
+        encoding = self.tokenizer(batch["tokens"],
                                   return_tensors="pt",
                                   padding=True,
                                   truncation=False,
-                                  is_split_into_words=False)
+                                  is_split_into_words=True)
 
         word_ids = [sample.word_ids for sample in encoding.encodings]
 
@@ -37,16 +37,24 @@ class BertEmbedding(pl.LightningModule):
         bert_out = [self.merge_wordpiece_vectors(pairs) for pairs in aggregated_bert_out]
         bert_out = pad_sequence([torch.stack(tensor) for tensor in bert_out], batch_first=True, padding_value=PAD_INDEX)
 
-        lengths = [len(x) for x in batch["tokens"]]
+        # filter special tokens from the word ids list ...
+        filtered_word_ids = [[w_id for w_id in w_ids if w_id is not None] for w_ids in word_ids]
+        # ... and consecutive equal ids, i.e. WordPieces of the same word
+        for w_ids in filtered_word_ids:
+            for i in range(len(w_ids)-1, -1, -1):
+                if w_ids[i] == w_ids[i-1]:
+                    w_ids.pop(i)
+
+        lengths = [len(x) for x in filtered_word_ids]
 
         encoding_mask = list()
 
-        for w_ids in batch["tokens"]:
+        for w_ids in filtered_word_ids:
             tokens = len(w_ids) * [True]
             # add False for both [CLS] and [SEP]
             bert_tokens = [False] + tokens + [False]
             # add False as [PAD] to match the padded batch len
-            padded_tokens = bert_tokens + [False] * (len(batch["token_idxs"][0]) - len(tokens))
+            padded_tokens = bert_tokens + [False] * (len(bert_out[0]) - 2 - len(tokens))
             encoding_mask.append(torch.tensor(padded_tokens))
 
         encoding_mask = torch.stack(encoding_mask)
@@ -59,7 +67,7 @@ class BertEmbedding(pl.LightningModule):
             vectors: torch.Tensor
     ) -> List[List[Tuple[int, torch.Tensor]]]:
         """
-        Aggregate subwords WordPiece vectors (which are identified by consecutives equal word_ids)
+        Aggregate subwords WordPiece vectors (which are identified by consecutive equal word_ids)
 
         e.g. word_ids = [0, 1, 1, 2] --> [[(0, tensor([...]))],
                                           [(1, tensor([...])),
@@ -89,14 +97,14 @@ class BertEmbedding(pl.LightningModule):
         """
         Merge, by arithmetic mean, the aggregated subwords WordPiece vectors
         given by the `aggregate_wordpiece_vectors` function
+
+        TODO: try weighted average
         """
         vectors = list()
         for pairs in wordpiece_vector_pairs:
             pair_subwords, pair_vectors = zip(*pairs)
-            # arithmetic mean of the sub-words embeddings # TODO try weighted average
             vector = torch.stack(pair_vectors).mean(dim=0)
-            for _ in range(len(pair_vectors)):
-                vectors.append(vector)
+            vectors.append(vector)
         return vectors
 
     def remove_bert_tokens(self, encodings, encoding_mask, lengths) -> torch.Tensor:
