@@ -6,7 +6,7 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 from transformers import BertModel, AutoTokenizer
 
-from stud.constants import PAD_INDEX
+from stud.constants import PAD_INDEX, BERT_OUT_DIM
 
 
 class BertEmbedding(pl.LightningModule):
@@ -127,14 +127,15 @@ class AspectTermsClassifier(torch.nn.Module):
 
         # embedding layer
         if hparams.bert_embedding:
-            self.word_embedding = BertEmbedding(hparams.bert_model_name_or_path)
-        elif embeddings is None:
-            self.word_embedding = torch.nn.Embedding(hparams.vocab_size, hparams.embedding_dim)
+            self.bert_embedding = BertEmbedding(hparams.bert_model_name_or_path)
+
+        if embeddings is None:
+            self.static_embedding = torch.nn.Embedding(hparams.vocab_size, hparams.embedding_dim)
         else:
-            self.word_embedding = torch.nn.Embedding.from_pretrained(embeddings)
+            self.static_embedding = torch.nn.Embedding.from_pretrained(embeddings)
 
         # recurrent layer
-        self.lstm = torch.nn.LSTM(hparams.embedding_dim,
+        self.lstm = torch.nn.LSTM(hparams.embedding_dim + (BERT_OUT_DIM if hparams.bert_embedding else 0),
                                   hparams.hidden_dim,
                                   bidirectional=hparams.bidirectional,
                                   num_layers=hparams.num_layers,
@@ -147,19 +148,24 @@ class AspectTermsClassifier(torch.nn.Module):
 
         # regularization
         self.dropout = torch.nn.Dropout(hparams.dropout)
-        self.relu = torch.nn.ReLU()
+        self.lrelu = torch.nn.LeakyReLU()
 
     def forward(self, batch):
-        token_idxs = batch["token_idxs"]
+
+        embeddings = self.static_embedding(batch["token_idxs"])
+        embeddings = self.dropout(embeddings)
+        embeddings = self.lrelu(embeddings)
 
         if self.hparams.bert_embedding:
             with torch.no_grad():
-                embeddings = self.word_embedding(batch)
-        else:
-            embeddings = self.word_embedding(token_idxs)
+                bert_embeddings = self.bert_embedding(batch)
+            bert_embeddings = self.dropout(bert_embeddings)
+            bert_embeddings = self.lrelu(bert_embeddings)
 
-        embeddings = self.dropout(embeddings)
+            embeddings = torch.cat((embeddings, bert_embeddings), dim=-1)
+
         out, (h, c) = self.lstm(embeddings)
         out = self.dropout(out)
         out = self.classifier(out)
+
         return out
