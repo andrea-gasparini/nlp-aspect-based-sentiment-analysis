@@ -1,6 +1,6 @@
 import os
 
-from torchtext.vocab import Vectors
+from torchtext.vocab import Vectors, Vocab
 
 def load_pretrained_embeddings(filename: str, cache_dir: str, vocab: Vocab) -> torch.Tensor:
     """
