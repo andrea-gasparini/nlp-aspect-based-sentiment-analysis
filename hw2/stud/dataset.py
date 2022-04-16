@@ -213,12 +213,10 @@ class ABSADataModule(pl.LightningDataModule):
     def __init__(self,
                  train_samples: List[Dict],
                  val_samples: List[Dict],
-                 tokenizer: PreTrainedTokenizer,
+                 tokenizer,
                  vocabularies: Dict[str, Vocab] = None,
                  batch_size: int = 32) -> None:
         super().__init__()
-        self.val_set = None
-        self.train_set = None
         self.train_samples = train_samples
         self.val_samples = val_samples
         self.tokenizer = tokenizer
@@ -244,10 +242,12 @@ class ABSADataModule(pl.LightningDataModule):
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(self.train_set,
+                          shuffle=True,
                           batch_size=self.batch_size,
                           collate_fn=padding_collate_fn)
 
     def val_dataloader(self) -> DataLoader:
         return DataLoader(self.val_set,
+                          shuffle=False,
                           batch_size=self.batch_size,
                           collate_fn=padding_collate_fn)
