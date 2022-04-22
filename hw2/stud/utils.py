@@ -1,7 +1,11 @@
+import evaluate
+import io
 import os
 import torch
 
+from contextlib import redirect_stdout
 from torchtext.vocab import Vectors, Vocab
+
 
 def load_pretrained_embeddings(filename: str, cache_dir: str, vocab: Vocab) -> torch.Tensor:
     """
@@ -33,10 +37,36 @@ def load_pretrained_embeddings(filename: str, cache_dir: str, vocab: Vocab) -> t
 
 
 def get_pretrained_model(pretrained_model_name_or_path: str) -> str:
-	"""
-	Returns the HuggingFace model name or the path to its local directory in case
-	the given arg is a valid one.
-	"""
-	return (pretrained_model_name_or_path
-			if os.path.exists(pretrained_model_name_or_path)
-			else os.path.basename(os.path.normpath(pretrained_model_name_or_path)))
+    """
+    Returns the HuggingFace model name or the path to its local directory in case
+    the given arg is a valid one.
+    """
+    return (pretrained_model_name_or_path
+            if os.path.exists(pretrained_model_name_or_path)
+            else os.path.basename(os.path.normpath(pretrained_model_name_or_path)))
+
+
+def get_label_key(mode: str = "ab") -> str:
+    return "tag" if MODE == "ab" else "sentiment" if MODE == "b" else "bio"
+
+
+def evaluate_extraction(samples, predictions) -> float:
+    scores = {"tp": 0, "fp": 0, "fn": 0}
+    for label, pred in zip(samples, predictions):
+        pred_terms = {term_pred[0] for term_pred in pred["targets"]}
+        gt_terms = {term_gt[1] for term_gt in label["targets"]}
+
+        scores["tp"] += len(pred_terms & gt_terms)
+        scores["fp"] += len(pred_terms - gt_terms)
+        scores["fn"] += len(gt_terms - pred_terms)
+
+    precision = 100 * scores["tp"] / (scores["tp"] + scores["fp"])
+    recall = 100 * scores["tp"] / (scores["tp"] + scores["fn"])
+    f1 = 2 * precision * recall / (precision + recall)
+
+    return f1
+
+
+def evaluate_sentiment(samples, predictions, mode="Aspect Sentiment") -> Dict[str, float]:
+    with redirect_stdout(io.StringIO()):
+        return evaluate.evaluate_sentiment(samples, predictions, mode)[0]["ALL"]
