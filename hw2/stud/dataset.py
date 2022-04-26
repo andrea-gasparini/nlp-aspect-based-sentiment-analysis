@@ -82,11 +82,14 @@ class ABSADataset(Dataset):
             self,
             samples: List[Dict],
             tokenizer,
-            vocabularies: Dict[str, Vocab] = None
+            vocabularies: Dict[str, Vocab] = None,
+            isolate_targets: bool = False
     ) -> None:
 
         super().__init__()
 
+        if isolate_targets:
+            samples = self.__isolate_targets(samples)
         self.samples = {key: [dic[key] for dic in samples] for key in samples[0]}
         self.tokenizer = tokenizer
         self.encoded_samples = {
@@ -154,6 +157,23 @@ class ABSADataset(Dataset):
 
         return decoded_predictions
 
+    def __isolate_targets(self, samples: List[Dict]) -> List[Dict]:
+        """
+        Applies an augmentation on the samples list, duplicating the ones with
+        more than one target and keeping only one of them per sample
+        """
+
+        augmented_samples = list()
+
+        for sample in samples:
+            if len(sample["targets"]) > 1:
+                for target in sample["targets"]:
+                    augmented_samples.append({"targets": [target], "text": sample["text"]})
+            else:
+                    augmented_samples.append(x)
+
+        return augmented_samples
+
     def __preprocess_samples(self) -> None:
 
         tokens = list()
@@ -213,18 +233,21 @@ class ABSADataModule(pl.LightningDataModule):
                  val_samples: List[Dict],
                  tokenizer,
                  vocabularies: Dict[str, Vocab] = None,
-                 batch_size: int = 32) -> None:
+                 batch_size: int = 32,
+                 augment_train: bool = True) -> None:
         super().__init__()
         self.train_samples = train_samples
         self.val_samples = val_samples
         self.tokenizer = tokenizer
         self.vocabs = vocabularies
         self.batch_size = batch_size
+        self.augment_train = augment_train
 
     def setup(self, stage: Optional[str] = None) -> None:
         self.train_set = ABSADataset(self.train_samples,
                                      tokenizer=self.tokenizer,
-                                     vocabularies=self.vocabs)
+                                     vocabularies=self.vocabs,
+                                     isolate_targets=self.augment_train)
 
         self.val_set = ABSADataset(self.val_samples,
                                    tokenizer=self.tokenizer,
