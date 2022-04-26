@@ -1,14 +1,12 @@
-from typing import *
-
 import pytorch_lightning as pl
 import torch
-from torch.nn.utils.rnn import pad_sequence
-from torch.utils.data import Dataset, DataLoader
-from torchtext.vocab import vocab, Vocab
-from transformers import PreTrainedTokenizer
 
 from evaluate import read_dataset
 from stud.constants import PAD_INDEX, UNK_TOKEN, PAD_TOKEN, UNK_INDEX
+from torch.nn.utils.rnn import pad_sequence
+from torch.utils.data import Dataset, DataLoader
+from torchtext.vocab import vocab, Vocab
+from typing import *
 
 
 def build_vocab(dataset: "ABSADataset", min_freq: int = 1) -> Vocab:
@@ -71,10 +69,10 @@ def padding_collate_fn(batch):
         "text": [sample["text"] for sample in batch],
         "tokens": [sample["tokens"] for sample in batch],
         "tags": [sample["tags"] for sample in batch],
-        "token_idxs": torch.tensor(padded_token_idxs),
-        "bio_idxs": torch.tensor(padded_bio_idxs),
-        "sentiment_idxs": torch.tensor(padded_sentiment_idxs),
-        "tag_idxs": torch.tensor(padded_tag_idxs)
+        "token_idxs": padded_token_idxs,
+        "bio_idxs": padded_bio_idxs,
+        "sentiment_idxs": padded_sentiment_idxs,
+        "tag_idxs": padded_tag_idxs
     }
 
 
@@ -83,7 +81,7 @@ class ABSADataset(Dataset):
     def __init__(
             self,
             samples: List[Dict],
-            tokenizer: PreTrainedTokenizer,
+            tokenizer,
             vocabularies: Dict[str, Vocab] = None
     ) -> None:
 
@@ -109,7 +107,7 @@ class ABSADataset(Dataset):
     def from_file(
             cls,
             path: str,
-            tokenizer: PreTrainedTokenizer,
+            tokenizer,
             vocabularies: Dict[str, Vocab] = None
     ) -> "ABSADataset":
 

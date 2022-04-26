@@ -1,31 +1,28 @@
 import pytorch_lightning as pl
 import torch
 
+from stud import utils
 from stud.constants import PAD_INDEX
 from stud.models import AspectTermsClassifier
+from typing import *
 
 
 class PlAspectTermsClassifier(pl.LightningModule):
-    def __init__(self, hparams, embeddings=None, ignore_index: int = PAD_INDEX, *args, **kwargs):
+    def __init__(self, hparams, embeddings=None, ignore_index: int = PAD_INDEX, *args, **kwargs) -> None:
         super().__init__()
 
         self.save_hyperparameters(hparams)
         self.loss_function = torch.nn.CrossEntropyLoss(ignore_index=ignore_index)
         self.model = AspectTermsClassifier(self.hparams, embeddings)
 
-        if self.hparams.mode == "a":
-            self.label_key = "bio_idxs"
-        elif self.hparams.mode == "b":
-            self.label_key = "sentiment_idxs"
-        elif self.hparams.mode == "ab":
-            self.label_key = "tag_idxs"
+        self.label_key = utils.get_label_key(self.hparams.mode) + "_idxs"
 
-    def forward(self, batch):
+    def forward(self, batch) -> Tuple[torch.Tensor, torch.Tensor]:
         logits = self.model(batch)
         predictions = torch.argmax(logits, -1)
         return logits, predictions
 
-    def step(self, batch, batch_idx):
+    def step(self, batch, batch_idx) -> Dict[str, torch.Tensor]:
         labels = batch[self.label_key]
         # We receive one batch of data and perform a forward pass:
         logits, preds = self.forward(batch)
@@ -38,38 +35,36 @@ class PlAspectTermsClassifier(pl.LightningModule):
         return {
             "loss": loss,
             "logits": logits,
-            "labels": labels,
+            "labels": batch[self.label_key],
             "preds": preds
         }
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch, batch_idx) -> Dict[str, torch.Tensor]:
         out = self.step(batch, batch_idx)
-        loss = out["loss"]
 
         self.log("train_loss",
-                 loss,
+                 out["loss"],
                  prog_bar=True,
                  on_step=False,
                  on_epoch=True)
 
-        return loss
+        return out
 
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch, batch_idx) -> Dict[str, torch.Tensor]:
         out = self.step(batch, batch_idx)
-        loss = out["loss"]
 
         self.log("valid_loss",
-                 loss,
+                 out["loss"],
                  prog_bar=True,
                  on_step=False,
                  on_epoch=True)
 
+        return out
     def test_step(self, batch, batch_idx):
         out = self.step(batch, batch_idx)
-        loss = out["loss"]
 
         self.log("test_loss",
-                 loss,
+                 out["loss"],
                  prog_bar=True,
                  on_step=False,
                  on_epoch=True)

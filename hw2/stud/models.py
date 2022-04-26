@@ -1,12 +1,11 @@
-from pprint import pprint
-from typing import *
-
 import pytorch_lightning as pl
 import torch
+
+from pprint import pprint
+from stud.constants import PAD_INDEX, BERT_OUT_DIM
 from torch.nn.utils.rnn import pad_sequence
 from transformers import BertModel, AutoTokenizer
-
-from stud.constants import PAD_INDEX, BERT_OUT_DIM
+from typing import *
 
 
 class BertEmbedding(pl.LightningModule):
@@ -41,8 +40,8 @@ class BertEmbedding(pl.LightningModule):
         filtered_word_ids = [[w_id for w_id in w_ids if w_id is not None] for w_ids in word_ids]
         # ... and consecutive equal ids, i.e. WordPieces of the same word
         for w_ids in filtered_word_ids:
-            for i in range(len(w_ids)-1, -1, -1):
-                if w_ids[i] == w_ids[i-1]:
+            for i in range(len(w_ids) - 1, -1, -1):
+                if w_ids[i] == w_ids[i - 1]:
                     w_ids.pop(i)
 
         lengths = [len(x) for x in filtered_word_ids]
@@ -118,7 +117,7 @@ class BertEmbedding(pl.LightningModule):
 
 class AspectTermsClassifier(torch.nn.Module):
 
-    def __init__(self, hparams, embeddings: Optional[torch.FloatTensor] = None):
+    def __init__(self, hparams, embeddings: Optional[torch.FloatTensor] = None) -> None:
         super().__init__()
 
         pprint(hparams)
@@ -148,19 +147,16 @@ class AspectTermsClassifier(torch.nn.Module):
 
         # regularization
         self.dropout = torch.nn.Dropout(hparams.dropout)
-        self.lrelu = torch.nn.LeakyReLU()
 
-    def forward(self, batch):
+    def forward(self, batch) -> torch.Tensor:
 
         embeddings = self.static_embedding(batch["token_idxs"])
         embeddings = self.dropout(embeddings)
-        embeddings = self.lrelu(embeddings)
 
         if self.hparams.bert_embedding:
             with torch.no_grad():
                 bert_embeddings = self.bert_embedding(batch)
             bert_embeddings = self.dropout(bert_embeddings)
-            bert_embeddings = self.lrelu(bert_embeddings)
 
             embeddings = torch.cat((embeddings, bert_embeddings), dim=-1)
 
