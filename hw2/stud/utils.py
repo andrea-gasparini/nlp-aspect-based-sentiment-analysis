@@ -5,6 +5,7 @@ import torch
 
 from contextlib import redirect_stdout
 from torchtext.vocab import Vectors, Vocab
+from typing import *
 
 
 def load_pretrained_embeddings(filename: str, cache_dir: str, vocab: Vocab) -> torch.Tensor:
