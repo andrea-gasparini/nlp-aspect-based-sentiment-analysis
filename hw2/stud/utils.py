@@ -48,7 +48,7 @@ def get_pretrained_model(pretrained_model_name_or_path: str) -> str:
 
 
 def get_label_key(mode: str = "ab") -> str:
-    return "tag" if MODE == "ab" else "sentiment" if MODE == "b" else "bio"
+    return "tag" if mode == "ab" else "sentiment" if mode == "b" else "bio"
 
 
 def evaluate_extraction(samples, predictions) -> float:
