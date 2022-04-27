@@ -170,7 +170,7 @@ class ABSADataset(Dataset):
                 for target in sample["targets"]:
                     augmented_samples.append({"targets": [target], "text": sample["text"]})
             else:
-                    augmented_samples.append(x)
+                    augmented_samples.append(sample)
 
         return augmented_samples
 
