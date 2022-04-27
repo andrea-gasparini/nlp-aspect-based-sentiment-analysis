@@ -1,6 +1,8 @@
 .idea
 .vscode
 
+wandb
+
 logs/*
 
 __pycache__
