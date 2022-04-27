@@ -184,11 +184,12 @@ class AspectTermsClassifier(torch.nn.Module):
             input_dim += self.bert_embedding.get_output_dim()
 
         # recurrent layer
-        self.lstm = torch.nn.LSTM(input_dim,
-                                  hparams.hidden_dim,
+        self.lstm = torch.nn.LSTM(input_size=input_dim,
+                                  hidden_size=hparams.hidden_dim,
                                   bidirectional=hparams.bidirectional,
                                   num_layers=hparams.num_layers,
-                                  dropout=hparams.dropout if hparams.num_layers > 1 else 0)
+                                  dropout=hparams.dropout if hparams.num_layers > 1 else 0,
+                                  batch_first=True)
 
         lstm_output_dim = hparams.hidden_dim if hparams.bidirectional is False else hparams.hidden_dim * 2
 
@@ -223,8 +224,9 @@ class AspectTermsClassifier(torch.nn.Module):
             # flatten the embeddings and packs them into a single sequence without padding
             # in order to reduce the lstm layer computing time and improve performance
             # see also: https://stackoverflow.com/a/56211056
+            lengths = torch.tensor([len(x) for x in token_idxs])
             embeddings_packed = pack_padded_sequence(embeddings,
-                                                     torch.tensor([len(x) for x in token_idxs]),
+                                                     lengths,
                                                      batch_first=True,
                                                      enforce_sorted=False)
             out_packed, _ = self.lstm(embeddings_packed)
