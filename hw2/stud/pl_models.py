@@ -1,8 +1,10 @@
+import numpy as np
 import pytorch_lightning as pl
 import torch
 
 from stud import utils
 from stud.constants import PAD_INDEX
+from stud.dataset import ABSADataset
 from stud.models import AspectTermsClassifier
 from typing import *
 
@@ -65,7 +67,7 @@ class PlAspectTermsClassifier(pl.LightningModule):
 
         return out
 
-    def validation_epoch_end(self, val_step_outputs: List[Dict[str, torch.Tensor]]):
+    def validation_epoch_end(self, val_step_outputs: List[Dict[str, Union[torch.Tensor, List[List[str]]]]]):
         predictions = list()
         gold_targets = list()
 
@@ -73,22 +75,10 @@ class PlAspectTermsClassifier(pl.LightningModule):
             gold_targets += [{"targets": targets} for targets in out["targets"]]
             predictions += self.decode_predictions(out["tokens"],
                                                    out["labels"],
-                                                   out["preds"])            
+                                                   out["preds"])
 
-        extraction_f1, evaluation_f1 = 0, 0
-
-        try:
-            extraction_f1 = evaluate_extraction(gold_targets, predictions)
-        except ZeroDivisionError:
-            pass
-
-        try:
-            evaluation_scores = evaluate_sentiment(gold_targets,
-                                                   predictions,
-                                                   "Aspect Sentiment")
-            evaluation_f1 = evaluation_scores["Macro_f1"]
-        except ZeroDivisionError:
-            pass
+        extraction_f1 = utils.evaluate_extraction(gold_targets, predictions)
+        evaluation_f1 = utils.evaluate_sentiment(gold_targets, predictions, "Aspect Sentiment")
 
         self.log_dict({
             "valid_aspect_sentiment_extraction_f1": extraction_f1,
@@ -133,14 +123,10 @@ class PlAspectTermsClassifier(pl.LightningModule):
                     polarities.append(polarity)
                 elif len(terms) != 0 and len(polarities) != 0:
 
-                    if tags[0] == "I": break
-
                     if "b" in mode:
                         polarities = [x for x in polarities if x != ""]
 
                     if len(polarities) != 0:
-
-                        polarity = None
 
                         cnt_list = np.array(list(Counter(polarities).values()))
 

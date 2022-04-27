@@ -9,13 +9,13 @@ from torchtext.vocab import Vectors, Vocab
 
 def load_pretrained_embeddings(filename: str, cache_dir: str, vocab: Vocab) -> torch.Tensor:
     """
-	Loads from a local file static word embedding vectors (e.g. GloVe, FastText)
-	and pairs them with the tokens contain in the given vocabulary.
+    Loads from a local file static word embedding vectors (e.g. GloVe, FastText)
+    and pairs them with the tokens contain in the given vocabulary.
 
     Args:
-            filename: name of the file that contains the vectors
-            cache_dir: directory for cached vectors
-            vocab: vocabulary of tokens to be embedded
+        filename: name of the file that contains the vectors
+        cache_dir: directory for cached vectors
+        vocab: vocabulary of tokens to be embedded
     """
     pretrained_embeddings = Vectors(filename, cache=cache_dir)
     embeddings = torch.randn(len(vocab), pretrained_embeddings.dim)
@@ -47,26 +47,34 @@ def get_pretrained_model(pretrained_model_name_or_path: str) -> str:
 
 
 def get_label_key(mode: str = "ab") -> str:
-    return "tag" if MODE == "ab" else "sentiment" if MODE == "b" else "bio"
+    return "tag" if mode == "ab" else "sentiment" if mode == "b" else "bio"
 
 
 def evaluate_extraction(samples, predictions) -> float:
-    scores = {"tp": 0, "fp": 0, "fn": 0}
+    tp, fp, fn = 0, 0, 0
     for label, pred in zip(samples, predictions):
         pred_terms = {term_pred[0] for term_pred in pred["targets"]}
         gt_terms = {term_gt[1] for term_gt in label["targets"]}
 
-        scores["tp"] += len(pred_terms & gt_terms)
-        scores["fp"] += len(pred_terms - gt_terms)
-        scores["fn"] += len(gt_terms - pred_terms)
+        tp += len(pred_terms & gt_terms)
+        fp += len(pred_terms - gt_terms)
+        fn += len(gt_terms - pred_terms)
 
-    precision = 100 * scores["tp"] / (scores["tp"] + scores["fp"])
-    recall = 100 * scores["tp"] / (scores["tp"] + scores["fn"])
-    f1 = 2 * precision * recall / (precision + recall)
+    try:
+        precision = 100 * tp / (tp + fp)
+        recall = 100 * tp / (tp + fn)
+        return 2 * precision * recall / (precision + recall)
+    except ZeroDivisionError:
+        return 0
 
-    return f1
 
-
-def evaluate_sentiment(samples, predictions, mode="Aspect Sentiment") -> Dict[str, float]:
+def evaluate_sentiment(samples, predictions, mode="Aspect Sentiment") -> float:
     with redirect_stdout(io.StringIO()):
-        return evaluate.evaluate_sentiment(samples, predictions, mode)[0]["ALL"]
+        try:
+            return evaluate.evaluate_sentiment(samples, predictions, mode)[0]["ALL"]["Macro_f1"]
+        except ZeroDivisionError:
+            return 0
+
+
+def get_device(tensor: torch.Tensor) -> str:
+    return "cuda" if tensor.is_cuda else "cpu"
