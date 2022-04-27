@@ -183,6 +183,13 @@ class AspectTermsClassifier(torch.nn.Module):
                                                 wordpiece_pooling_strategy=hparams.bert_wordpiece_pooling_strategy)
             input_dim += self.bert_embedding.get_output_dim()
 
+        if self.hparams.attention:
+            self.attention = torch.nn.MultiheadAttention(input_dim,
+                                                         hparams.attention_heads,
+                                                         hparams.attention_dropout,
+                                                         batch_first=True)
+            self.attention_dropout = torch.nn.Dropout(hparams.attention_dropout)
+
         # recurrent layer
         self.lstm = torch.nn.LSTM(input_size=input_dim,
                                   hidden_size=hparams.hidden_dim,
@@ -219,6 +226,12 @@ class AspectTermsClassifier(torch.nn.Module):
             bert_embeddings = self.dropout(bert_embeddings)
 
             embeddings = torch.cat((embeddings, bert_embeddings), dim=-1)
+
+        if self.hparams.attention:
+            x = embeddings
+            attention_mask = ~(token_idxs != PAD_INDEX)
+            embeddings, _ = self.attention(x, x, x, key_padding_mask=attention_mask)
+            embeddings = self.attention_dropout(embeddings)
 
         if self.hparams.pack_lstm_input:
             # flatten the embeddings and packs them into a single sequence without padding
