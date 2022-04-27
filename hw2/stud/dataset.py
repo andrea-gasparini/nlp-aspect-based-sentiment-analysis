@@ -1,19 +1,21 @@
+from typing import *
+
+import nltk
 import pytorch_lightning as pl
 import torch
-
-from evaluate import read_dataset
-from stud.constants import PAD_INDEX, UNK_TOKEN, PAD_TOKEN, UNK_INDEX
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset, DataLoader
 from torchtext.vocab import vocab, Vocab
-from typing import *
+
+from evaluate import read_dataset
+from stud.constants import PAD_INDEX, UNK_TOKEN, PAD_TOKEN, UNK_INDEX
 
 
-def build_vocab(dataset: "ABSADataset", min_freq: int = 1) -> Vocab:
+def build_vocab(dataset: "ABSADataset", key: str = "tokens", min_freq: int = 1) -> Vocab:
     counter = Counter()
 
     for sample in dataset:
-        for token in sample["tokens"]:
+        for token in sample[key]:
             counter[token] += 1
 
     # min_freq is the minimum number of times that a token must appear in order to be part of the vocabulary
@@ -55,11 +57,13 @@ def build_label_vocab(dataset: "ABSADataset") -> Tuple[Vocab, Vocab, Vocab]:
 
 def padding_collate_fn(batch):
     token_idxs = [sample["token_idxs"] for sample in batch]
+    pos_tag_idxs = [sample["pos_tag_idxs"] for sample in batch]
     bio_idxs = [sample["bio_idxs"] for sample in batch]
     sentiment_idxs = [sample["sentiment_idxs"] for sample in batch]
     tag_idxs = [sample["tag_idxs"] for sample in batch]
 
     padded_token_idxs = pad_sequence(token_idxs, batch_first=True, padding_value=PAD_INDEX)
+    padded_pos_tag_idxs = pad_sequence(pos_tag_idxs, batch_first=True, padding_value=PAD_INDEX)
     padded_bio_idxs = pad_sequence(bio_idxs, batch_first=True, padding_value=PAD_INDEX)
     padded_sentiment_idxs = pad_sequence(sentiment_idxs, batch_first=True, padding_value=PAD_INDEX)
     padded_tag_idxs = pad_sequence(tag_idxs, batch_first=True, padding_value=PAD_INDEX)
@@ -88,20 +92,20 @@ class ABSADataset(Dataset):
 
         super().__init__()
 
-        if isolate_targets:
-            samples = self.__isolate_targets(samples)
-        self.samples = {key: [dic[key] for dic in samples] for key in samples[0]}
+        self.raw_samples = samples
         self.tokenizer = tokenizer
         self.encoded_samples = {
             "tokens": list(),
+            "pos_tags": list(),
             "tags": list(),
+            "pos_tag_idxs": list(),
             "token_idxs": list(),
             "bio_idxs": list(),
             "sentiment_idxs": list(),
             "tag_idxs": list()
         }
 
-        self.__preprocess_samples()
+        self.__preprocess_samples(isolate_targets)
 
         if vocabularies is not None:
             self.encode_samples(vocabularies)
@@ -119,29 +123,36 @@ class ABSADataset(Dataset):
     def encode_samples(self, vocabularies: Dict[str, Vocab]) -> None:
 
         token_idxs = list()
+        pos_tag_idxs = list()
         bio_idxs = list()
         tag_idxs = list()
         sentiment_idxs = list()
 
-        for tokens, tags in zip(self.encoded_samples["tokens"], self.encoded_samples["tags"]):
+        for tokens, pos_tags, tags in zip(self.encoded_samples["tokens"],
+                                          self.encoded_samples["pos_tags"],
+                                          self.encoded_samples["tags"]):
 
             sample_token_idxs = list()
+            sample_pos_tag_idxs = list()
             sample_bio_idxs = list()
             sample_sentiment_idxs = list()
             sample_tag_idxs = list()
 
-            for token, tag in zip(tokens, tags):
+            for token, pos_tag, tag in zip(tokens, pos_tags, tags):
                 sample_token_idxs.append(vocabularies["text"][token])
+                sample_pos_tag_idxs.append(vocabularies["pos"][pos_tag])
                 sample_tag_idxs.append(vocabularies["tag"][tag])
                 sample_bio_idxs.append(vocabularies["bio"][tag[0]])
                 sample_sentiment_idxs.append(vocabularies["sentiment"][tag[2:]])
 
             token_idxs.append(torch.tensor(sample_token_idxs))
+            pos_tag_idxs.append(torch.tensor(sample_pos_tag_idxs))
             bio_idxs.append(torch.tensor(sample_bio_idxs))
             sentiment_idxs.append(torch.tensor(sample_sentiment_idxs))
             tag_idxs.append(torch.tensor(sample_tag_idxs))
 
         self.encoded_samples["token_idxs"] = token_idxs
+        self.encoded_samples["pos_tag_idxs"] = pos_tag_idxs
         self.encoded_samples["bio_idxs"] = bio_idxs
         self.encoded_samples["sentiment_idxs"] = sentiment_idxs
         self.encoded_samples["tag_idxs"] = tag_idxs
@@ -170,21 +181,31 @@ class ABSADataset(Dataset):
                 for target in sample["targets"]:
                     augmented_samples.append({"targets": [target], "text": sample["text"]})
             else:
-                    augmented_samples.append(sample)
+                augmented_samples.append(sample)
 
         return augmented_samples
 
-    def __preprocess_samples(self) -> None:
+    def __preprocess_samples(self, isolate_targets: bool = False) -> None:
 
+        samples = self.raw_samples
         tokens = list()
+        pos_tags = list()
         tags = list()
+
+        if isolate_targets:
+            samples = self.__isolate_targets(self.raw_samples)
+
+        self.samples = {key: [dic[key] for dic in samples] for key in samples[0]}
 
         for sample_text, sample_targets in zip(self.samples["text"], self.samples["targets"]):
             sample_tokens = self.tokenizer.tokenize(sample_text)
+            sample_pos_tags = [pos[1] for pos in nltk.pos_tag(sample_tokens)]
             sample_tags = self.__tag_sample(sample_text, sample_targets, sample_tokens)
             tokens.append(sample_tokens)
+            pos_tags.append(sample_pos_tags)
             tags.append(sample_tags)
 
+        self.encoded_samples["pos_tags"] = pos_tags
         self.encoded_samples["tokens"] = tokens
         self.encoded_samples["tags"] = tags
 
@@ -209,21 +230,21 @@ class ABSADataset(Dataset):
 
     def __getitem__(self, idx: int) -> Dict[str, Union[torch.Tensor, List[str], str]]:
 
-        token_idxs = self.encoded_samples["token_idxs"]
-        bio_idxs = self.encoded_samples["bio_idxs"]
-        sentiment_idxs = self.encoded_samples["sentiment_idxs"]
-        tag_idxs = self.encoded_samples["tag_idxs"]
-
         return {
             "targets": self.samples["targets"][idx],
             "text": self.samples["text"][idx],
             "tokens": self.encoded_samples["tokens"][idx],
+            "pos_tags": self.encoded_samples["pos_tags"][idx],
             "tags": self.encoded_samples["tags"][idx],
-            "token_idxs": token_idxs[idx] if len(token_idxs) != 0 else None,
-            "bio_idxs": bio_idxs[idx] if len(bio_idxs) != 0 else None,
-            "sentiment_idxs": sentiment_idxs[idx] if len(sentiment_idxs) != 0 else None,
-            "tag_idxs": tag_idxs[idx] if len(tag_idxs) != 0 else None
+            "token_idxs": self.__get_indices("token_idxs", idx),
+            "pos_tag_idxs": self.__get_indices("pos_tag_idxs", idx),
+            "bio_idxs": self.__get_indices("bio_idxs", idx),
+            "sentiment_idxs": self.__get_indices("sentiment_idxs", idx),
+            "tag_idxs": self.__get_indices("tag_idxs", idx)
         }
+
+    def __get_indices(self, key: str, index: int) -> Optional[torch.Tensor]:
+        return self.encoded_samples[key][index] if len(self.encoded_samples[key]) != 0 else None
 
 
 class ABSADataModule(pl.LightningDataModule):
@@ -236,6 +257,8 @@ class ABSADataModule(pl.LightningDataModule):
                  batch_size: int = 32,
                  augment_train: bool = True) -> None:
         super().__init__()
+        self.train_set = None
+        self.val_set = None
         self.train_samples = train_samples
         self.val_samples = val_samples
         self.tokenizer = tokenizer
@@ -256,6 +279,7 @@ class ABSADataModule(pl.LightningDataModule):
         if self.vocabs is None:
             self.vocabs = dict()
             self.vocabs["text"] = build_vocab(self.train_set + self.val_set)
+            self.vocabs["pos"] = build_vocab(self.train_set + self.val_set, "pos_tags")
             self.vocabs["tag"], self.vocabs["bio"], self.vocabs["sentiment"] = build_label_vocab(self.train_set)
 
         self.train_set.encode_samples(self.vocabs)

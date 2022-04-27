@@ -173,6 +173,10 @@ class AspectTermsClassifier(torch.nn.Module):
 
         input_dim = hparams.embedding_dim
 
+        if hparams.pos_embedding:
+            self.pos_embedding = torch.nn.Embedding(hparams.pos_vocab_size, hparams.pos_embedding_dim)
+            input_dim += hparams.pos_embedding_dim
+
         if hparams.bert_embedding:
             self.bert_embedding = BertEmbedding(hparams.bert_model_name_or_path,
                                                 layer_pooling_strategy=hparams.bert_layer_pooling_strategy,
@@ -199,6 +203,11 @@ class AspectTermsClassifier(torch.nn.Module):
 
         embeddings = self.static_embedding(token_idxs)
         embeddings = self.dropout(embeddings)
+
+        if self.hparams.pos_embedding:
+            pos_embeddings = self.pos_embedding(batch["pos_idxs"])
+            pos_embeddings = self.dropout(pos_embeddings)
+            embeddings = torch.cat((embeddings, pos_embeddings), dim=-1)
 
         if self.hparams.bert_embedding:
             if not self.hparams.bert_finetuning:
