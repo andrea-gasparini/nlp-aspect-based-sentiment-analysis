@@ -1,11 +1,16 @@
-import evaluate
 import io
 import os
-import torch
-
 from contextlib import redirect_stdout
+
+import nltk
+import torch
 from torchtext.vocab import Vectors, Vocab
-from typing import *
+
+import evaluate
+
+
+def nltk_downloads() -> None:
+    nltk.download('averaged_perceptron_tagger')
 
 
 def load_pretrained_embeddings(filename: str, cache_dir: str, vocab: Vocab) -> torch.Tensor:

@@ -1,3 +1,5 @@
+from typing import *
+
 import numpy as np
 import pytorch_lightning as pl
 import torch
@@ -6,7 +8,6 @@ from stud import utils
 from stud.constants import PAD_INDEX
 from stud.dataset import ABSADataset
 from stud.models import AspectTermsClassifier
-from typing import *
 
 
 class PlAspectTermsClassifier(pl.LightningModule):

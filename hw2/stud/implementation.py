@@ -1,8 +1,9 @@
+import random
+from typing import List, Dict
+
 import numpy as np
-from typing import List, Tuple, Dict
 
 from model import Model
-import random
 
 
 def build_model_b(device: str) -> Model:
