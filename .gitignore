@@ -5,4 +5,12 @@ wandb
 
 logs/*
 
+model/bert-base-cased
+model/embeddings
+model/*.ckpt
+
+.ipynb_checkpoints
 __pycache__
+
+! .placeholder
+! .gitkeep
