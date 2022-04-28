@@ -213,7 +213,7 @@ class AspectTermsClassifier(torch.nn.Module):
         embeddings = self.dropout(embeddings)
 
         if self.hparams.pos_embedding:
-            pos_embeddings = self.pos_embedding(batch["pos_idxs"])
+            pos_embeddings = self.pos_embedding(batch["pos_tag_idxs"])
             pos_embeddings = self.dropout(pos_embeddings)
             embeddings = torch.cat((embeddings, pos_embeddings), dim=-1)
 

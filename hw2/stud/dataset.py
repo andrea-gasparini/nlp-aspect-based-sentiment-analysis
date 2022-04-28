@@ -8,51 +8,45 @@ from torch.utils.data import Dataset, DataLoader
 from torchtext.vocab import vocab, Vocab
 
 from evaluate import read_dataset
-from stud.constants import PAD_INDEX, UNK_TOKEN, PAD_TOKEN, UNK_INDEX
+from stud.constants import PAD_INDEX, UNK_TOKEN, PAD_TOKEN
 
 
-def build_vocab(dataset: "ABSADataset", key: str = "tokens", min_freq: int = 1) -> Vocab:
+def build_vocab(dataset: "ABSADataset",
+                min_freq: int = 1,
+                unk_token: bool = True,
+                get_tokens_fn: Callable[[Dict], List[str]] = lambda sample: sample["tokens"]) -> Vocab:
+    """
+    Creates a Vocab object from an ABSADataset
+
+    Args:
+        dataset: dataset to build the vocabulary from its samples
+        min_freq: min number of times a token must appear in order to be included in the vocabulary
+        unk_token: whether to insert or not a default "unknown" token
+        get_tokens_fn: function to retrieve the list of tokens to insert in the vocabulary from a dataset sample
+    """
     counter = Counter()
 
     for sample in dataset:
-        for token in sample[key]:
+        for token in get_tokens_fn(sample):
             counter[token] += 1
 
-    # min_freq is the minimum number of times that a token must appear in order to be part of the vocabulary
-    vocabulary = vocab(counter, min_freq=min_freq)
-
-    # add special tokens to handle padding and unknown words at testing time
-    vocabulary.insert_token(UNK_TOKEN, UNK_INDEX)
-    vocabulary.set_default_index(UNK_INDEX)
-
+    vocabulary = vocab(counter, min_freq=min_freq, specials=[UNK_TOKEN] if unk_token else None)
     vocabulary.insert_token(PAD_TOKEN, PAD_INDEX)
+
+    if unk_token:
+        vocabulary.set_default_index(vocabulary[UNK_TOKEN])
 
     return vocabulary
 
 
-def build_label_vocab(dataset: "ABSADataset") -> Tuple[Vocab, Vocab, Vocab]:
-    tag_counter = Counter()
-    bio_counter = Counter()
-    sentiment_counter = Counter()
+def build_pos_vocab(dataset: "ABSADataset") -> Vocab:
+    return build_vocab(dataset, unk_token=False, get_tokens_fn=lambda sample: sample["pos_tags"])
 
-    for sample in dataset:
-        for i in range(len(sample["tokens"])):
-            token = sample["tokens"][i]
-            tag = sample["tags"][i]
-            if token != PAD_TOKEN:
-                tag_counter[tag] += 1
-                bio_counter[tag[0]] += 1
-                sentiment_counter[tag[2:]] += 1
 
-    tag_vocabulary = vocab(tag_counter)
-    bio_vocabulary = vocab(bio_counter)
-    sentiment_vocabulary = vocab(sentiment_counter)
-
-    tag_vocabulary.insert_token(PAD_TOKEN, PAD_INDEX)
-    bio_vocabulary.insert_token(PAD_TOKEN, PAD_INDEX)
-    sentiment_vocabulary.insert_token(PAD_TOKEN, PAD_INDEX)
-
-    return tag_vocabulary, bio_vocabulary, sentiment_vocabulary
+def build_label_vocabs(dataset: "ABSADataset") -> Tuple[Vocab, Vocab, Vocab]:
+    return build_vocab(dataset, unk_token=False, get_tokens_fn=lambda sample: sample["tags"]), \
+           build_vocab(dataset, unk_token=False, get_tokens_fn=lambda sample: [tag[0] for tag in sample["tags"]]), \
+           build_vocab(dataset, unk_token=False, get_tokens_fn=lambda sample: [tag[2:] for tag in sample["tags"]])
 
 
 def padding_collate_fn(batch):
@@ -74,6 +68,7 @@ def padding_collate_fn(batch):
         "tokens": [sample["tokens"] for sample in batch],
         "tags": [sample["tags"] for sample in batch],
         "token_idxs": padded_token_idxs,
+        "pos_tag_idxs": padded_pos_tag_idxs,
         "bio_idxs": padded_bio_idxs,
         "sentiment_idxs": padded_sentiment_idxs,
         "tag_idxs": padded_tag_idxs
@@ -255,7 +250,9 @@ class ABSADataModule(pl.LightningDataModule):
                  tokenizer,
                  vocabularies: Dict[str, Vocab] = None,
                  batch_size: int = 32,
-                 augment_train: bool = True) -> None:
+                 augment_train: bool = True,
+                 num_workers: int = 0,
+                 pin_memory: bool = False) -> None:
         super().__init__()
         self.train_set = None
         self.val_set = None
@@ -265,6 +262,8 @@ class ABSADataModule(pl.LightningDataModule):
         self.vocabs = vocabularies
         self.batch_size = batch_size
         self.augment_train = augment_train
+        self.num_workers = num_workers
+        self.pin_memory = pin_memory
 
     def setup(self, stage: Optional[str] = None) -> None:
         self.train_set = ABSADataset(self.train_samples,
@@ -279,8 +278,8 @@ class ABSADataModule(pl.LightningDataModule):
         if self.vocabs is None:
             self.vocabs = dict()
             self.vocabs["text"] = build_vocab(self.train_set + self.val_set)
-            self.vocabs["pos"] = build_vocab(self.train_set + self.val_set, "pos_tags")
-            self.vocabs["tag"], self.vocabs["bio"], self.vocabs["sentiment"] = build_label_vocab(self.train_set)
+            self.vocabs["pos"] = build_pos_vocab(self.train_set + self.val_set)
+            self.vocabs["tag"], self.vocabs["bio"], self.vocabs["sentiment"] = build_label_vocabs(self.train_set)
 
         self.train_set.encode_samples(self.vocabs)
         self.val_set.encode_samples(self.vocabs)
@@ -289,10 +288,14 @@ class ABSADataModule(pl.LightningDataModule):
         return DataLoader(self.train_set,
                           shuffle=True,
                           batch_size=self.batch_size,
-                          collate_fn=padding_collate_fn)
+                          collate_fn=padding_collate_fn,
+                          num_workers=self.num_workers,
+                          pin_memory=self.pin_memory)
 
     def val_dataloader(self) -> DataLoader:
         return DataLoader(self.val_set,
                           shuffle=False,
                           batch_size=self.batch_size,
-                          collate_fn=padding_collate_fn)
+                          collate_fn=padding_collate_fn,
+                          num_workers=self.num_workers,
+                          pin_memory=self.pin_memory)
