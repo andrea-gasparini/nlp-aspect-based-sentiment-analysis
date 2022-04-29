@@ -64,7 +64,8 @@ class BertEmbedding(torch.nn.Module):
                  pretrained_model_name_or_path: str = "bert-base-cased",
                  layer_pooling_strategy: str = "last",
                  layers_to_merge: Sequence[int] = (-1, -2, -3, -4),
-                 wordpiece_pooling_strategy: str = "mean") -> None:
+                 wordpiece_pooling_strategy: str = "mean",
+                 finetune: bool = False) -> None:
         super().__init__()
 
         self.layers_to_merge = layers_to_merge
@@ -72,7 +73,12 @@ class BertEmbedding(torch.nn.Module):
         self.wordpiece_pooling_strategy = wordpiece_pooling_strategy
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path)
         self.model = BertModel.from_pretrained(pretrained_model_name_or_path, return_dict=True)
-        self.model.eval()
+		
+        if not finetune:
+			# feature based approach
+            # freeze all the parameters and use the model as a frozen encoder
+            for param in self.model.parameters():
+                param.requires_grad = False
 
     def forward(self, batch: Dict[str, Union[Tensor, List]]) -> Tensor:
 

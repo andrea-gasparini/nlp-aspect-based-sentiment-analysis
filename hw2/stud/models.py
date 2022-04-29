@@ -31,6 +31,7 @@ class AspectTermsClassifier(torch.nn.Module):
 
         if hparams.bert_embedding:
             self.bert_embedding = BertEmbedding(hparams.bert_model_name_or_path,
+                                                finetune=hparams.bert_finetuning,
                                                 layers_to_merge=hparams.bert_layers_to_merge,
                                                 layer_pooling_strategy=hparams.bert_layer_pooling_strategy,
                                                 wordpiece_pooling_strategy=hparams.bert_wordpiece_pooling_strategy)
@@ -79,11 +80,7 @@ class AspectTermsClassifier(torch.nn.Module):
             embeddings = torch.cat((embeddings, pos_embeddings), dim=-1)
 
         if self.hparams.bert_embedding:
-            if not self.hparams.bert_finetuning:
-                with torch.no_grad():
-                    bert_embeddings = self.bert_embedding(batch)
-            else:
-                bert_embeddings = self.bert_embedding(batch)
+            bert_embeddings = self.bert_embedding(batch)
             bert_embeddings = self.dropout(bert_embeddings)
 
             embeddings = torch.cat((embeddings, bert_embeddings), dim=-1)
