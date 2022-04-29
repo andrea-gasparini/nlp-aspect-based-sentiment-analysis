@@ -7,6 +7,7 @@ import torch
 from torchtext.vocab import Vectors, Vocab
 
 import evaluate
+from stud import constants as const
 
 
 def nltk_downloads() -> None:
@@ -16,7 +17,7 @@ def nltk_downloads() -> None:
 def load_pretrained_embeddings(filename: str, cache_dir: str, vocab: Vocab) -> torch.Tensor:
     """
     Loads from a local file static word embedding vectors (e.g. GloVe, FastText)
-    and pairs them with the tokens contain in the given vocabulary.
+    and pairs them with the tokens contained in the given vocabulary.
 
     Args:
         filename: name of the file that contains the vectors
@@ -34,7 +35,7 @@ def load_pretrained_embeddings(filename: str, cache_dir: str, vocab: Vocab) -> t
             embedding = pretrained_embeddings.get_vecs_by_tokens(token)
             embeddings[i] = embedding
 
-    embeddings[vocab["[PAD]"]] = torch.zeros(pretrained_embeddings.dim)
+    embeddings[vocab[const.PAD_TOKEN]] = torch.zeros(pretrained_embeddings.dim)
 
     print(f"initialised {initialised} embeddings")
     print(f"randomly initialised {len(vocab) - initialised} embeddings")

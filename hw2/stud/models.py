@@ -4,8 +4,9 @@ from typing import *
 import torch
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from stud.layers import BertEmbedding, Attention, TransformerEncoder
 from stud.constants import PAD_INDEX
+from stud.layers import BertEmbedding, Attention, TransformerEncoder
+
 
 class AspectTermsClassifier(torch.nn.Module):
 

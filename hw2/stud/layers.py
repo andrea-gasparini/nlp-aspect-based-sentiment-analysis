@@ -10,41 +10,40 @@ from stud.constants import PAD_INDEX
 
 
 class TransformerEncoder(torch.nn.Module):
-	"""
-	A multi-head attention based encoder, implements a single layer of the Transformer encoder
-	described in the paper: `Attention Is All You Need <https://arxiv.org/abs/1706.03762>`
-	"""
-	FEED_FORWARD_INNER_DIM = 2048
+    """
+    A multi-head attention based encoder, implements a single layer of the Transformer encoder
+    described in the paper: `Attention Is All You Need <https://arxiv.org/abs/1706.03762>`
+    """
+    FEED_FORWARD_INNER_DIM = 2048
 
-	def __init__(self, embed_dim: int = 512, num_heads: int = 8, dropout: float = 0.1) -> None:
-		super().__init__()
+    def __init__(self, embed_dim: int = 512, num_heads: int = 8, dropout: float = 0.1) -> None:
+        super().__init__()
 
-		self.self_attn = torch.nn.MultiheadAttention(embed_dim, num_heads, dropout, batch_first=True)
+        self.self_attn = torch.nn.MultiheadAttention(embed_dim, num_heads, dropout, batch_first=True)
 
-		self.feedforward = torch.nn.Sequential(torch.nn.Linear(embed_dim, self.FEED_FORWARD_INNER_DIM),
-											   torch.nn.ReLU(),
-											   torch.nn.Linear(self.FEED_FORWARD_INNER_DIM, embed_dim))
+        self.feedforward = torch.nn.Sequential(torch.nn.Linear(embed_dim, self.FEED_FORWARD_INNER_DIM),
+                                               torch.nn.ReLU(),
+                                               torch.nn.Linear(self.FEED_FORWARD_INNER_DIM, embed_dim))
 
-		self.norm1 = torch.nn.LayerNorm(embed_dim)
-		self.norm2 = torch.nn.LayerNorm(embed_dim)
+        self.norm1 = torch.nn.LayerNorm(embed_dim)
+        self.norm2 = torch.nn.LayerNorm(embed_dim)
 
-		self.dropout = torch.nn.Dropout(dropout)
+        self.dropout = torch.nn.Dropout(dropout)
 
-	def forward(self, inputs: Tensor, key_padding_mask: Optional[Tensor] = None) -> torch.Tensor:
-		
-		out1, _ = self.self_attn(inputs, inputs, inputs, key_padding_mask=key_padding_mask)
-		out1 = self.dropout(out1)
-		out1 = self.norm1(inputs + out1)
+    def forward(self, inputs: Tensor, key_padding_mask: Optional[Tensor] = None) -> torch.Tensor:
+        out1, _ = self.self_attn(inputs, inputs, inputs, key_padding_mask=key_padding_mask)
+        out1 = self.dropout(out1)
+        out1 = self.norm1(inputs + out1)
 
-		out2 = self.feedforward(out1)
-		out2 = self.dropout(out2)
-		out = self.norm2(out1 + out2)
+        out2 = self.feedforward(out1)
+        out2 = self.dropout(out2)
+        out = self.norm2(out1 + out2)
 
-		return out
+        return out
 
 
 class Attention(torch.nn.Module):
-    
+
     def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0.0) -> None:
         super().__init__()
 
@@ -52,7 +51,6 @@ class Attention(torch.nn.Module):
         self.attention_dropout = torch.nn.Dropout(dropout)
 
     def forward(self, inputs: Tensor, key_padding_mask: Optional[Tensor] = None) -> torch.Tensor:
-        
         out, _ = self.self_attn(inputs, inputs, inputs, key_padding_mask=key_padding_mask)
         out = self.attention_dropout(out)
 
