@@ -7,10 +7,12 @@ logs/*
 
 model/bert-base-cased
 model/embeddings
-model/*.ckpt
+model/taggers
+*.ckpt
 
 .ipynb_checkpoints
+lightning_logs
 __pycache__
 
-! .placeholder
-! .gitkeep
+!.placeholder
+!.gitkeep

@@ -1,6 +1,7 @@
 import io
 import os
 from contextlib import redirect_stdout
+from typing import Optional
 
 import nltk
 import torch
@@ -10,8 +11,8 @@ import evaluate
 from stud import constants as const
 
 
-def nltk_downloads() -> None:
-    nltk.download('averaged_perceptron_tagger')
+def nltk_downloads(download_dir: Optional[str] = None) -> None:
+    nltk.download('averaged_perceptron_tagger', download_dir=download_dir)
 
 
 def load_pretrained_embeddings(filename: str, cache_dir: str, vocab: Vocab) -> torch.Tensor:
@@ -56,10 +57,6 @@ def get_pretrained_model(pretrained_model_name_or_path: str) -> str:
 def get_label_key(mode: str = "ab") -> str:
     if mode == "ab":
         return "tag"
-    elif mode == "b":
-        return "sentiment"
-    elif mode == "a":
-        return "bio"
     elif mode == "cd":
         return "category"
     else:

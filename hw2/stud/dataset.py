@@ -47,10 +47,8 @@ def build_pos_vocab(dataset: "ABSADataset") -> Vocab:
     return build_vocab(dataset, unk_token=False, get_tokens_fn=lambda sample: sample["pos_tags"])
 
 
-def build_label_vocabs(dataset: "ABSADataset") -> Tuple[Vocab, Vocab, Vocab]:
-    return build_vocab(dataset, unk_token=False, get_tokens_fn=lambda sample: sample["tags"]), \
-           build_vocab(dataset, unk_token=False, get_tokens_fn=lambda sample: [tag[0] for tag in sample["tags"]]), \
-           build_vocab(dataset, unk_token=False, get_tokens_fn=lambda sample: [tag[2:] for tag in sample["tags"]])
+def build_label_vocabs(dataset: "ABSADataset") -> Vocab:
+    return build_vocab(dataset, unk_token=False, get_tokens_fn=lambda sample: sample["tags"])
 
 
 def build_category_vocabs(dataset: "ABSADataset") -> Tuple[Vocab, Vocab]:
@@ -71,6 +69,7 @@ def pad_sequence(sequences: Union[List[torch.Tensor], torch.Tensor]) -> torch.Te
 def padding_collate_fn(batch):
 
     category_idxs = get_from_batch(batch, "category_idxs")
+    tag_idxs = get_from_batch(batch, "tag_idxs")
 
     return {
         "targets": get_from_batch(batch, "targets"),
@@ -80,9 +79,7 @@ def padding_collate_fn(batch):
         "categories": get_from_batch(batch, "categories"),
         "token_idxs": pad_sequence(get_from_batch(batch, "token_idxs")),
         "pos_tag_idxs": pad_sequence(get_from_batch(batch, "pos_tag_idxs")),
-        "bio_idxs": pad_sequence(get_from_batch(batch, "bio_idxs")),
-        "sentiment_idxs": pad_sequence(get_from_batch(batch, "sentiment_idxs")),
-        "tag_idxs": pad_sequence(get_from_batch(batch, "tag_idxs")),
+        "tag_idxs": pad_sequence(tag_idxs) if tag_idxs.count(None) != len(tag_idxs) else None,
         "category_idxs": torch.stack(category_idxs) if category_idxs.count(None) != len(category_idxs) else None
     }
 
@@ -94,8 +91,8 @@ class ABSADataset(Dataset):
             samples: List[Dict],
             tokenizer,
             vocabularies: Dict[str, Vocab] = None,
-            isolate_targets: bool = False,
-            has_categories: bool = False
+            has_categories: bool = False,
+            no_labels: bool = False
     ) -> None:
 
         super().__init__()
@@ -103,6 +100,7 @@ class ABSADataset(Dataset):
         self.raw_samples = samples
         self.tokenizer = tokenizer
         self.has_categories = has_categories
+        self.no_labels = no_labels
         self.encoded_samples = {
             "tokens": list(),
             "pos_tags": list(),
@@ -110,13 +108,11 @@ class ABSADataset(Dataset):
             "categories": list(),
             "pos_tag_idxs": list(),
             "token_idxs": list(),
-            "bio_idxs": list(),
-            "sentiment_idxs": list(),
             "tag_idxs": list(),
             "category_idxs": list()
         }
 
-        self.__preprocess_samples(isolate_targets)
+        self.__preprocess_samples()
 
         if vocabularies is not None:
             self.encode_samples(vocabularies)
@@ -127,88 +123,91 @@ class ABSADataset(Dataset):
             path: str,
             tokenizer,
             vocabularies: Dict[str, Vocab] = None,
-            isolate_targets: bool = False,
-            has_categories: bool = False
+            has_categories: bool = False,
+            no_labels: bool = False
     ) -> "ABSADataset":
 
-        return cls(read_dataset(path), tokenizer, vocabularies, isolate_targets, has_categories)
+        return cls(read_dataset(path), tokenizer, vocabularies, has_categories, no_labels)
 
     def encode_samples(self, vocabularies: Dict[str, Vocab]) -> None:
+        """
+        Encodes tokens, pos tags and labels as numeric indices through the mapping defined in the given vocabularies.
+        """
 
-        token_idxs = list()
-        pos_tag_idxs = list()
-        bio_idxs = list()
-        tag_idxs = list()
-        sentiment_idxs = list()
-        category_idxs = list()
+        token_idxs, pos_tag_idxs, tag_idxs, category_idxs  = list(), list(), list(), list()
 
         for i in range(len(self.raw_samples)):
 
-            sample_token_idxs = list()
-            sample_pos_tag_idxs = list()
-            sample_bio_idxs = list()
-            sample_sentiment_idxs = list()
-            sample_tag_idxs = list()
+            sample_token_idxs, sample_pos_tag_idxs, sample_tag_idxs = list(), list(), list()
 
             for token, pos_tag, tag in zip(self.encoded_samples["tokens"][i],
                                            self.encoded_samples["pos_tags"][i],
                                            self.encoded_samples["tags"][i]):
                 sample_token_idxs.append(vocabularies["text"][token])
                 sample_pos_tag_idxs.append(vocabularies["pos"][pos_tag])
-                sample_tag_idxs.append(vocabularies["tag"][tag])
-                sample_bio_idxs.append(vocabularies["bio"][tag[0]])
-                sample_sentiment_idxs.append(vocabularies["sentiment"][tag[2:]])
+
+                if not self.no_labels:
+                    sample_tag_idxs.append(vocabularies["tag"][tag])
 
             token_idxs.append(torch.tensor(sample_token_idxs))
             pos_tag_idxs.append(torch.tensor(sample_pos_tag_idxs))
-            bio_idxs.append(torch.tensor(sample_bio_idxs))
-            sentiment_idxs.append(torch.tensor(sample_sentiment_idxs))
-            tag_idxs.append(torch.tensor(sample_tag_idxs))
 
-            if self.has_categories:
-                # build a `n_categories` x `n_polarities+1` (5x5) tensor,
-                # where the first dimension corresponds to the categories and the second to their polarities.
-                # A value of 1 at indices `[i, j]` means the sample has category of index `i` with polarity of index `j`
-                categories_vocab = vocabularies["categories"]
-                polarities_vocab = vocabularies["category_polarities"]
-                sample_category_idxs = torch.zeros(len(categories_vocab), len(polarities_vocab) + 1)
-                # A value of 1 at indices `[i, -1]` means the sample do not have a category of index `i`
-                sample_category_idxs[:, -1] = 1
+            if not self.no_labels:
+                tag_idxs.append(torch.tensor(sample_tag_idxs))
 
-                for category, polarity in self.encoded_samples["categories"][i]:
-                    sample_category_idxs[categories_vocab[category], -1] = 0
-                    sample_category_idxs[categories_vocab[category], polarities_vocab[polarity]] = 1
+                if self.has_categories:
+                    # build a `n_categories` x `n_polarities+1` (5x5) tensor,
+                    # where the first dimension corresponds to the categories and the second to their polarities.
+                    # A value of 1 at indices `[i, j]` means the sample has category of index `i` with polarity of index `j`
+                    categories_vocab = vocabularies["categories"]
+                    polarities_vocab = vocabularies["category_polarities"]
+                    sample_category_idxs = torch.zeros(len(categories_vocab), len(polarities_vocab) + 1)
+                    # A value of 1 at indices `[i, -1]` means the sample do not have a category of index `i`
+                    sample_category_idxs[:, -1] = 1
 
-                category_idxs.append(sample_category_idxs.flatten())
+                    for category, polarity in self.encoded_samples["categories"][i]:
+                        sample_category_idxs[categories_vocab[category], -1] = 0
+                        sample_category_idxs[categories_vocab[category], polarities_vocab[polarity]] = 1
+
+                    category_idxs.append(sample_category_idxs)
 
         self.encoded_samples["token_idxs"] = token_idxs
         self.encoded_samples["pos_tag_idxs"] = pos_tag_idxs
-        self.encoded_samples["bio_idxs"] = bio_idxs
-        self.encoded_samples["sentiment_idxs"] = sentiment_idxs
-        self.encoded_samples["tag_idxs"] = tag_idxs
 
-        if self.has_categories:
-            self.encoded_samples["category_idxs"] = category_idxs
+        if not self.no_labels:
+            self.encoded_samples["tag_idxs"] = tag_idxs
+
+            if self.has_categories:
+                self.encoded_samples["category_idxs"] = category_idxs
 
     @staticmethod
     def decode_output(predictions: torch.Tensor,
                       label_vocabulary: Vocab,
                       polarity_vocabulary: Optional[Vocab] = None,
                       mode: str = "ab") -> Union[List[List[Tuple[str, str]]], List[List[str]]]:
+        """
+        Decodes the labels/predictions from their indices format back to the original string form,
+        through the mapping defined in the given vocabularies.
+
+        Args:
+            predictions: labels/predictions to decode back in their original string form
+            label_vocabulary: label vocabulary, either for the tags of task A+B or for the categories of task C+D
+            polarity_vocabulary: vocabulary of the polarities of task C+D
+            mode: defines which task the labels are from, either "ab" or "cd"
+        """
 
         decoded_predictions = list()
 
-        if mode in ["ab", "a", "b"]:
+        if mode == "ab":
             for indices in predictions:
                 # vocabulary integer to string used to obtain the corresponding label from the index
                 decoded_predictions.append([label_vocabulary.get_itos()[i] for i in indices])
         elif mode == "cd":
             assert polarity_vocabulary is not None, "A valid polarity vocabulary is necessary for mode \"cd\""
-            for indices in predictions:
-                # reshape the predictions in the `n_categories` x `n_polarities+1` (5x5) encoding
-                preds_2d = torch.reshape(indices, (len(label_vocabulary), len(polarity_vocabulary) + 1))
-                # and get the most probable polarities for each category,
-                # where `preds[i]` is the polarity's index of the category of index `i`,
+            # for each predicted matrix (`n_categories` x `n_polarities+1` (5x5) shape)
+            for preds_2d in predictions:
+                # get the most probable polarity for each category,
+                # where `preds[i]` is the polarity's index of the category of index `i`
                 preds = torch.argmax(preds_2d, dim=-1)
 
                 sample_predictions = list()
@@ -224,43 +223,28 @@ class ABSADataset(Dataset):
 
         return decoded_predictions
 
-    def __isolate_targets(self, samples: List[Dict]) -> List[Dict]:
+    def __preprocess_samples(self) -> None:
         """
-        Applies an augmentation on the samples list, duplicating the ones with
-        more than one target and keeping only one of them per sample
+        Preprocess the samples in the dataset by tokenizing the sentences, applying a POS tagging procedure and also
+        tagging each token with the IOB+polarity schema.
         """
-
-        augmented_samples = list()
-
-        for sample in samples:
-            if len(sample["targets"]) > 1:
-                for target in sample["targets"]:
-                    augmented_samples.append({
-                        "targets": [target],
-                        "text": sample["text"],
-                        "categories": sample["categories"]
-                    })
-            else:
-                augmented_samples.append(sample)
-
-        return augmented_samples
-
-    def __preprocess_samples(self, isolate_targets: bool = False) -> None:
 
         samples = self.raw_samples
         tokens = list()
         pos_tags = list()
         tags = list()
 
-        if isolate_targets:
-            samples = self.__isolate_targets(self.raw_samples)
-
         self.samples = {key: [dic[key] for dic in samples] for key in samples[0]}
 
-        for sample_text, sample_targets in zip(self.samples["text"], self.samples["targets"]):
+        for i in range(len(samples)):
+            sample_text = self.raw_samples[i]["text"]
             sample_tokens = self.tokenizer.tokenize(sample_text)
             sample_pos_tags = [pos[1] for pos in nltk.pos_tag(sample_tokens)]
-            sample_tags = self.__tag_sample(sample_text, sample_targets, sample_tokens)
+
+            if not self.no_labels:
+                sample_tags = self.__tag_sample(sample_text, self.raw_samples[i]["targets"], sample_tokens)
+            else:
+                sample_tags = [None for _ in range(len(sample_tokens))]
 
             tokens.append(sample_tokens)
             pos_tags.append(sample_pos_tags)
@@ -270,22 +254,38 @@ class ABSADataset(Dataset):
         self.encoded_samples["tokens"] = tokens
         self.encoded_samples["tags"] = tags
 
-        if self.has_categories:
+        if self.has_categories and not self.no_labels:
             self.encoded_samples["categories"] = self.samples["categories"]
 
     def __tag_sample(self, sample_text: str, sample_targets: List, sample_tokens: List[str]) -> List[str]:
+        """
+        Parse the "targets" of each sample and returns a list of IOB+polarity tags (either "O" or "B|I-{polarity}"),
+        one for each token in the sentence.
 
+        Args:
+            sample_text: the plain text of the sample to tag
+            sample_targets: the plain targets list of the sample to tag
+            sample_tokens: a consistent tokenization of the sentence
+        """
+
+        # initialize all tokens as Outside of an aspect term
         tags = ["O" for _ in range(len(sample_tokens))]
 
-        for (start, end), target, tag in sample_targets:
+        # for each sample's target
+        for target in sample_targets:
+            if len(target) != 3: continue # fixes grader's missing polarity
+            (start, end), aspect_term, polarity = target
+            # tokenize the target aspect term and all that comes before in the sentence
             target_subwords_tokens = self.tokenizer.tokenize(sample_text[start:end])
             target_previous_tokens = self.tokenizer.tokenize(sample_text[:start])
             n_prev_tokens = len(target_previous_tokens)
 
-            target_positions = list(range(n_prev_tokens, n_prev_tokens + len(target_subwords_tokens)))
+            # compute a list of the indices (in terms of tokens) where the target aspect term is placed
+            target_indices = list(range(n_prev_tokens, n_prev_tokens + len(target_subwords_tokens)))
 
-            for i, t_pos in enumerate(target_positions):
-                tags[t_pos] = f"B-{tag}" if i == 0 else f"I-{tag}"
+            # tag with B (Beginning) the first token of the aspect term and with I (Inside) all the others
+            for i, target_index in enumerate(target_indices):
+                tags[target_index] = f"B-{polarity}" if i == 0 else f"I-{polarity}"
 
         return tags
 
@@ -295,17 +295,15 @@ class ABSADataset(Dataset):
     def __getitem__(self, idx: int) -> Dict[str, Union[torch.Tensor, List[str], str]]:
 
         return {
-            "targets": self.samples["targets"][idx],
+            "targets": self.samples["targets"][idx] if not self.no_labels else None,
             "text": self.samples["text"][idx],
             "tokens": self.encoded_samples["tokens"][idx],
             "pos_tags": self.encoded_samples["pos_tags"][idx],
             "tags": self.encoded_samples["tags"][idx],
-            "categories": self.encoded_samples["categories"][idx] if self.has_categories else None,
+            "categories": self.encoded_samples["categories"][idx] if self.has_categories and not self.no_labels else None,
             "token_idxs": self.__get_indices("token_idxs", idx),
             "pos_tag_idxs": self.__get_indices("pos_tag_idxs", idx),
-            "bio_idxs": self.__get_indices("bio_idxs", idx),
-            "sentiment_idxs": self.__get_indices("sentiment_idxs", idx),
-            "tag_idxs": self.__get_indices("tag_idxs", idx),
+            "tag_idxs": self.__get_indices("tag_idxs", idx) if not self.no_labels else None,
             "category_idxs": self.__get_indices("category_idxs", idx)
         }
 
@@ -321,7 +319,6 @@ class ABSADataModule(pl.LightningDataModule):
                  tokenizer,
                  vocabularies: Dict[str, Vocab] = None,
                  batch_size: int = 32,
-                 augment_train: bool = True,
                  num_workers: int = 0,
                  pin_memory: bool = False,
                  has_category: bool = False) -> None:
@@ -333,7 +330,6 @@ class ABSADataModule(pl.LightningDataModule):
         self.tokenizer = tokenizer
         self.vocabs = vocabularies
         self.batch_size = batch_size
-        self.augment_train = augment_train
         self.num_workers = num_workers
         self.pin_memory = pin_memory
         self.has_category = has_category
@@ -342,7 +338,6 @@ class ABSADataModule(pl.LightningDataModule):
         self.train_set = ABSADataset(self.train_samples,
                                      tokenizer=self.tokenizer,
                                      vocabularies=self.vocabs,
-                                     isolate_targets=self.augment_train,
                                      has_categories=self.has_category)
 
         self.val_set = ABSADataset(self.val_samples,
@@ -354,7 +349,7 @@ class ABSADataModule(pl.LightningDataModule):
             self.vocabs = dict()
             self.vocabs["text"] = build_vocab(self.train_set + self.val_set)
             self.vocabs["pos"] = build_pos_vocab(self.train_set + self.val_set)
-            self.vocabs["tag"], self.vocabs["bio"], self.vocabs["sentiment"] = build_label_vocabs(self.train_set)
+            self.vocabs["tag"] = build_label_vocabs(self.train_set)
 
             if self.has_category:
                 self.vocabs["categories"], self.vocabs["category_polarities"] = build_category_vocabs(self.train_set)

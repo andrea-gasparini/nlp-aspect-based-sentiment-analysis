@@ -49,15 +49,23 @@ class Attention(torch.nn.Module):
 
         self.self_attn = torch.nn.MultiheadAttention(embed_dim, num_heads, dropout, batch_first=True)
         self.attention_dropout = torch.nn.Dropout(dropout)
+        self.norm = torch.nn.LayerNorm(embed_dim)
 
     def forward(self, inputs: Tensor, key_padding_mask: Optional[Tensor] = None) -> torch.Tensor:
         out, _ = self.self_attn(inputs, inputs, inputs, key_padding_mask=key_padding_mask)
         out = self.attention_dropout(out)
+        out = self.norm(out)
 
         return out
 
 
 class BertEmbedding(torch.nn.Module):
+    """
+    An embedding layer wrapping a pre-trained instance of BERT, described in the paper:
+    `BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding <https://arxiv.org/abs/1810.04805>`
+
+    It implements a fine-tuning option and different pooling strategies for both output hidden states and WordPieces.
+    """
     BERT_OUT_DIM = 768
 
     def __init__(self,
@@ -72,10 +80,12 @@ class BertEmbedding(torch.nn.Module):
         self.layer_pooling_strategy = layer_pooling_strategy
         self.wordpiece_pooling_strategy = wordpiece_pooling_strategy
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path)
-        self.model = BertModel.from_pretrained(pretrained_model_name_or_path, return_dict=True)
-		
+        self.model: torch.nn.Module = BertModel.from_pretrained(pretrained_model_name_or_path, return_dict=True)
+
         if not finetune:
-			# feature based approach
+            # feature based approach
+            # disable dropout and batchnorm
+            self.model.eval()
             # freeze all the parameters and use the model as a frozen encoder
             for param in self.model.parameters():
                 param.requires_grad = False
@@ -172,6 +182,8 @@ class BertEmbedding(torch.nn.Module):
         """
         if self.layer_pooling_strategy == "last":
             return layers[-1]
+        elif self.layer_pooling_strategy == "second_to_last":
+            return layers[-2]
         elif self.layer_pooling_strategy == "concat":
             return torch.cat([layers[l] for l in to_merge], dim=-1)
         elif self.layer_pooling_strategy == "sum":
