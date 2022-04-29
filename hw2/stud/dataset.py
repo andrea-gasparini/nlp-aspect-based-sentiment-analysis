@@ -3,7 +3,7 @@ from typing import *
 import nltk
 import pytorch_lightning as pl
 import torch
-from torch.nn.utils.rnn import pad_sequence
+from torch.nn.utils import rnn
 from torch.utils.data import Dataset, DataLoader
 from torchtext.vocab import vocab, Vocab
 
@@ -49,29 +49,25 @@ def build_label_vocabs(dataset: "ABSADataset") -> Tuple[Vocab, Vocab, Vocab]:
            build_vocab(dataset, unk_token=False, get_tokens_fn=lambda sample: [tag[2:] for tag in sample["tags"]])
 
 
+def get_from_batch(batch, key: str = "token_idxs") -> Union[torch.Tensor, List[str], str]:
+    return [sample[key] for sample in batch]
+
+
+def pad_sequence(sequences: Union[List[torch.Tensor], torch.Tensor]) -> torch.Tensor:
+    return rnn.pad_sequence(sequences, batch_first=True, padding_value=PAD_INDEX)
+
+
 def padding_collate_fn(batch):
-    token_idxs = [sample["token_idxs"] for sample in batch]
-    pos_tag_idxs = [sample["pos_tag_idxs"] for sample in batch]
-    bio_idxs = [sample["bio_idxs"] for sample in batch]
-    sentiment_idxs = [sample["sentiment_idxs"] for sample in batch]
-    tag_idxs = [sample["tag_idxs"] for sample in batch]
-
-    padded_token_idxs = pad_sequence(token_idxs, batch_first=True, padding_value=PAD_INDEX)
-    padded_pos_tag_idxs = pad_sequence(pos_tag_idxs, batch_first=True, padding_value=PAD_INDEX)
-    padded_bio_idxs = pad_sequence(bio_idxs, batch_first=True, padding_value=PAD_INDEX)
-    padded_sentiment_idxs = pad_sequence(sentiment_idxs, batch_first=True, padding_value=PAD_INDEX)
-    padded_tag_idxs = pad_sequence(tag_idxs, batch_first=True, padding_value=PAD_INDEX)
-
     return {
-        "targets": [sample["targets"] for sample in batch],
-        "text": [sample["text"] for sample in batch],
-        "tokens": [sample["tokens"] for sample in batch],
-        "tags": [sample["tags"] for sample in batch],
-        "token_idxs": padded_token_idxs,
-        "pos_tag_idxs": padded_pos_tag_idxs,
-        "bio_idxs": padded_bio_idxs,
-        "sentiment_idxs": padded_sentiment_idxs,
-        "tag_idxs": padded_tag_idxs
+        "targets": get_from_batch(batch, "targets"),
+        "text": get_from_batch(batch, "text"),
+        "tokens": get_from_batch(batch, "tokens"),
+        "tags": get_from_batch(batch, "tags"),
+        "token_idxs": pad_sequence(get_from_batch(batch, "token_idxs")),
+        "pos_tag_idxs": pad_sequence(get_from_batch(batch, "pos_tag_idxs")),
+        "bio_idxs": pad_sequence(get_from_batch(batch, "bio_idxs")),
+        "sentiment_idxs": pad_sequence(get_from_batch(batch, "sentiment_idxs")),
+        "tag_idxs": pad_sequence(get_from_batch(batch, "tag_idxs"))
     }
 
 
@@ -93,6 +89,7 @@ class ABSADataset(Dataset):
             "tokens": list(),
             "pos_tags": list(),
             "tags": list(),
+            "categories": list(),
             "pos_tag_idxs": list(),
             "token_idxs": list(),
             "bio_idxs": list(),
