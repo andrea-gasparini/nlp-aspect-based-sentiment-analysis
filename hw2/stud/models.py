@@ -51,7 +51,10 @@ class AspectTermsClassifier(torch.nn.Module):
                                   dropout=hparams.dropout if hparams.num_layers > 1 else 0,
                                   batch_first=True)
 
-        lstm_output_dim = hparams.hidden_dim if hparams.bidirectional is False else hparams.hidden_dim * 2
+        lstm_output_dim = hparams.hidden_dim if not hparams.bidirectional else hparams.hidden_dim * 2
+        if self.hparams.mode == "cd" and hparams.bidirectional:
+            # in mode "cd" we concat the first and the last vector to summarize the bidirectional output
+            lstm_output_dim *= 2
 
         # classification head
         classification_head_input_dim = lstm_output_dim
@@ -92,11 +95,12 @@ class AspectTermsClassifier(torch.nn.Module):
         lstm_input_is_attn_out = self.hparams.attention and not self.hparams.attention_concat
         lstm_input = attn_out if lstm_input_is_attn_out else embeddings
 
+        lengths = torch.tensor([len(x) for x in token_idxs])
+
         if self.hparams.pack_lstm_input:
             # flatten the embeddings and packs them into a single sequence without padding
             # in order to reduce the lstm layer computing time and improve performance
             # see also: https://stackoverflow.com/a/56211056
-            lengths = torch.tensor([len(x) for x in token_idxs])
             embeddings_packed = pack_padded_sequence(lstm_input,
                                                      lengths,
                                                      batch_first=True,
@@ -108,9 +112,10 @@ class AspectTermsClassifier(torch.nn.Module):
         else:
             lstm_out, _ = self.lstm(embeddings)
 
+        lstm_out = self.__get_summary_vectors(lstm_out, lengths)
         lstm_out = self.dropout(lstm_out)
 
-        if lstm_input_is_attn_out:
+        if not self.hparams.attention or lstm_input_is_attn_out:
             classifier_input = lstm_out
         else:
             classifier_input = torch.cat([lstm_out, attn_out], dim=-1)
@@ -118,3 +123,36 @@ class AspectTermsClassifier(torch.nn.Module):
         out = self.classifier(classifier_input)
 
         return out
+
+    def __get_summary_vectors(self, recurrent_out: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
+        """
+        Returns the summary vectors of a recurrent layer output, based on the model mode (e.g. "ab" or "cd").
+        For instance, in sequence labelling modes (e.g. "ab") all the vectors are returned, while for multi-class/labels
+        classification only one vector is returned.
+
+        Args:
+            recurrent_out: output of a recurrent layer
+            lengths: list of sequence lengths of each batch element without padding
+        """
+        if self.hparams.mode in ["ab", "a", "b"]:
+            return recurrent_out
+        elif self.hparams.mode == "cd":
+            batch_size, seq_len, hidden_size = recurrent_out.shape
+
+            # flattening the recurrent output to have a long sequence of (batch_size x seq_len) vectors
+            flattened_out = recurrent_out.reshape(-1, hidden_size)
+
+            # tensor of the start offsets of each element in the batch
+            sequences_offsets = torch.arange(batch_size) * seq_len
+
+            # computing a tensor of the indices of the token in the last positions of each batch element
+            last_vectors_indices = sequences_offsets + (lengths - 1)
+
+            # summary vectors that summarize the elements in the batch
+            summary_vectors = flattened_out[last_vectors_indices]
+
+            if self.hparams.bidirectional:
+                # concat the vectors from the token in the first positions of each batch element to the summary vectors
+                summary_vectors = torch.cat((flattened_out[sequences_offsets], summary_vectors), dim=-1)
+
+            return summary_vectors

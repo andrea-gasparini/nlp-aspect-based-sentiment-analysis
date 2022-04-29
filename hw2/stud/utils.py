@@ -54,7 +54,16 @@ def get_pretrained_model(pretrained_model_name_or_path: str) -> str:
 
 
 def get_label_key(mode: str = "ab") -> str:
-    return "tag" if mode == "ab" else "sentiment" if mode == "b" else "bio"
+    if mode == "ab":
+        return "tag"
+    elif mode == "b":
+        return "sentiment"
+    elif mode == "a":
+        return "bio"
+    elif mode == "cd":
+        return "category"
+    else:
+        raise Exception(f"\"{mode}\" is not a valid mode")
 
 
 def evaluate_extraction(samples, predictions) -> float:

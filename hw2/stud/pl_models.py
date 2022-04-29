@@ -5,13 +5,12 @@ import pytorch_lightning as pl
 import torch
 
 from stud import utils
-from stud.constants import PAD_INDEX
 from stud.dataset import ABSADataset
 from stud.models import AspectTermsClassifier
 
 
 class PlAspectTermsClassifier(pl.LightningModule):
-    def __init__(self, hparams, embeddings=None, ignore_index: int = PAD_INDEX, *args, **kwargs) -> None:
+    def __init__(self, hparams, embeddings=None, ignore_index: int = -100, *args, **kwargs) -> None:
         super().__init__()
 
         self.save_hyperparameters(hparams)
@@ -20,27 +19,43 @@ class PlAspectTermsClassifier(pl.LightningModule):
 
         self.label_key = utils.get_label_key(self.hparams.mode) + "_idxs"
 
-    def forward(self, batch) -> Tuple[torch.Tensor, torch.Tensor]:
-        logits = self.model(batch)
-        predictions = torch.argmax(logits, -1)
-        return logits, predictions
+    def forward(self, batch) -> Dict[str, torch.Tensor]:
+        out = {"logits": self.model(batch)}
+
+        if self.hparams.mode in ["ab", "a", "b"]:
+            out["preds"] = torch.argmax(out["logits"], dim=-1)
+        elif self.hparams.mode == "cd":
+            out["preds"] = torch.softmax(out["logits"], dim=-1)
+
+        return out
 
     def step(self, batch, batch_idx) -> Dict[str, torch.Tensor]:
-        labels = batch[self.label_key]
-        # We receive one batch of data and perform a forward pass:
-        logits, preds = self.forward(batch)
-        # Adapt logits and labels to fit the format required by the loss function
-        logits = logits.view(-1, logits.shape[-1])
-        labels = labels.view(-1)
+        out = self.forward(batch)
+        logits = out["logits"]
+        labels: torch.Tensor = batch[self.label_key]
+        out["labels"] = labels
 
-        loss = self.loss_function(logits, labels)
+        if self.hparams.mode in ["ab", "a", "b"]:
+            # adapt logits and labels to fit the format required by the loss function
+            logits = logits.view(-1, logits.shape[-1])
+            labels = labels.view(-1)
+            out["loss"] = self.loss_function(logits, labels)
+        elif self.hparams.mode == "cd":
+            # adapt logits to fit the format required by the loss function for each independent category+polarity,
+            # keeping only the index of the correct polarity for each category instead of the one-hot encoding
+            n_categories = len(self.hparams.label_vocab)
+            matrix_shape = (-1, n_categories, len(self.hparams.polarity_vocab) + 1)
+            logits = logits.reshape(matrix_shape)
+            labels = torch.argmax(labels.reshape(matrix_shape), dim=-1)
 
-        return {
-            "loss": loss,
-            "logits": logits,
-            "labels": batch[self.label_key],
-            "preds": preds
-        }
+            # compute the loss as the sum of the losses computed on each independent label
+            out["loss"] = 0
+            for category_idx in range(n_categories):
+                category_logits, polarities = logits[:, category_idx], labels[:, category_idx]
+                normalized_loss = 1 / n_categories * self.loss_function(category_logits, polarities)
+                out["loss"] += normalized_loss
+
+        return out
 
     def training_step(self, batch, batch_idx) -> Dict[str, torch.Tensor]:
         out = self.step(batch, batch_idx)
@@ -65,6 +80,8 @@ class PlAspectTermsClassifier(pl.LightningModule):
         # necessary in order to compute other metrics at the end of the epoch
         out["tokens"] = batch["tokens"]
         out["targets"] = batch["targets"]
+        if self.hparams.mode == "cd":
+            out["categories"] = batch["categories"]
 
         return out
 
@@ -73,13 +90,20 @@ class PlAspectTermsClassifier(pl.LightningModule):
         gold_targets = list()
 
         for out in val_step_outputs:
-            gold_targets += [{"targets": targets} for targets in out["targets"]]
+            if self.hparams.mode in ["ab", "a", "b"]:
+                gold_targets += [{"targets": targets} for targets in out["targets"]]
+            elif self.hparams.mode == "cd":
+                gold_targets += [{"categories": categories} for categories in out["categories"]]
             predictions += self.decode_predictions(out["tokens"],
                                                    out["labels"],
                                                    out["preds"])
 
-        extraction_f1 = utils.evaluate_extraction(gold_targets, predictions)
-        evaluation_f1 = utils.evaluate_sentiment(gold_targets, predictions, "Aspect Sentiment")
+        if self.hparams.mode == "cd":
+            extraction_f1 = utils.evaluate_sentiment(gold_targets, predictions, "Category Extraction")
+            evaluation_f1 = utils.evaluate_sentiment(gold_targets, predictions, "Category Sentiment")
+        else:
+            extraction_f1 = utils.evaluate_extraction(gold_targets, predictions)
+            evaluation_f1 = utils.evaluate_sentiment(gold_targets, predictions, "Aspect Sentiment")
 
         self.log_dict({
             "valid_aspect_sentiment_extraction_f1": extraction_f1,
@@ -101,9 +125,15 @@ class PlAspectTermsClassifier(pl.LightningModule):
                            predictions_batch: torch.Tensor
                            ) -> List[Dict[str, List[Tuple[str, str]]]]:
 
-        decoded_preds = ABSADataset.decode_output(predictions_batch, self.hparams.label_vocab)
+        decoded_preds = ABSADataset.decode_output(predictions_batch,
+                                                  self.hparams.label_vocab,
+                                                  self.hparams.polarity_vocab if self.hparams.mode == "cd" else None,
+                                                  self.hparams.mode)
 
         mode = self.hparams.mode
+
+        if mode == "cd":
+            return [{"categories": categories} for categories in decoded_preds]
 
         out = list()
 
