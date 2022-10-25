@@ -19,6 +19,11 @@ This project has been developed during the A.Y. 2020-2021 for the [Natural Langu
 - [Task A+B: BiLSTM+GloVe+BERT](https://drive.google.com/file/d/13FrSTadwGsH0QJaxvmnMnQ39KVy__C3I/view?usp=sharing)
 - [Task C+D: BiLSTM+GloVe+BERT+Attention](https://drive.google.com/file/d/1jm_zCrtQwPUnT5vLoTvhETuh2ZpCVy7w/view?usp=sharing)
 
+## Related projects
+
+- [Word-in-Context (WiC) disambiguation](https://github.com/andrea-gasparini/nlp-word-in-context-disambiguation) experimenting with a word-level approach (MLP + ReLU) and a sequence encoding one (LSTMs), on top of GloVe embeddings
+- [Word Sense Disambiguation (WSD) for WiC disambiguation](https://github.com/andrea-gasparini/nlp-word-sense-disambiguation-wic-data), experimenting with BERT feature-based and fine-tuning approaches (GlossBERT)
+
 ## Authors
 
 - [Andrea Gasparini](https://github.com/andrea-gasparini)
