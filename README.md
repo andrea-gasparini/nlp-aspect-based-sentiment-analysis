@@ -21,7 +21,7 @@ This project has been developed during the A.Y. 2020-2021 for the [Natural Langu
 
 ## Related projects
 
-- [Word-in-Context (WiC) disambiguation](https://github.com/andrea-gasparini/nlp-word-in-context-disambiguation) experimenting with a word-level approach (MLP + ReLU) and a sequence encoding one (LSTMs), on top of GloVe embeddings
+- [Word-in-Context (WiC) disambiguation](https://github.com/andrea-gasparini/nlp-word-in-context-disambiguation) as a binary classification task, experimenting with a word-level approach (MLP + ReLU) and a sequence encoding one (LSTMs), on top of GloVe embeddings
 - [Word Sense Disambiguation (WSD) for WiC disambiguation](https://github.com/andrea-gasparini/nlp-word-sense-disambiguation-wic-data), experimenting with BERT feature-based and fine-tuning approaches (GlossBERT)
 
 ## Authors
